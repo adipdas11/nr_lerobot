@@ -8,6 +8,8 @@ This is the current source of truth for SmolVLA dataset conversion, training, an
 - [Files](#files)
 - [Runtime Architecture](#runtime-architecture)
 - [New Machine Docker Setup](#new-machine-docker-setup)
+- [LeRobot Clone Policy](#lerobot-clone-policy)
+- [UV Environment Setup](#uv-environment-setup)
 - [Dataset Conversion](#dataset-conversion)
 - [Training](#training)
 - [Inference In Isaac](#inference-in-isaac)
@@ -95,6 +97,78 @@ The policy server receives:
 
 The model returns a `50 x 6` action chunk in the same order.
 
+## LeRobot Clone Policy
+
+For now, `lerobot/` is treated as an external clone, not a submodule.
+
+Use this exact upstream and commit:
+
+- upstream:
+  `https://github.com/huggingface/lerobot.git`
+- pinned commit:
+  `d762f4bfe8b22045d13483cf7bd15a1e28099678`
+
+Clone it inside the repo root like this:
+
+```bash
+cd /workspace/disassembly_ws/src/agentic_disassembly
+git clone https://github.com/huggingface/lerobot.git lerobot
+cd lerobot
+git checkout d762f4bfe8b22045d13483cf7bd15a1e28099678
+```
+
+Do not commit a plain ad hoc `lerobot/` clone into this repository.
+
+## UV Environment Setup
+
+Use `uv` inside the container to create the repo-local Python 3.12 environment.
+
+### 1. Install `uv`
+
+If `uv` is not already available in the container:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+uv --version
+```
+
+If you prefer `pipx` or system packaging, that is fine too, but the rest of this guide assumes `uv` is available on `PATH`.
+
+### 2. Create The Repo-Local Virtual Environment With `uv`
+
+```bash
+cd /workspace/disassembly_ws/src/agentic_disassembly
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+```
+
+### 3. Install Model-Side Packages With `uv`
+
+Install the direct runtime packages used by the SmolVLA path:
+
+```bash
+cd /workspace/disassembly_ws/src/agentic_disassembly
+source .venv/bin/activate
+uv pip install torch transformers safetensors opencv-python numpy pandas pyarrow rosbags
+```
+
+### 4. Install Local LeRobot Into The Same Environment
+
+```bash
+cd /workspace/disassembly_ws/src/agentic_disassembly
+source .venv/bin/activate
+uv pip install -e ./lerobot
+```
+
+### 5. Verify The `uv` Environment
+
+```bash
+cd /workspace/disassembly_ws/src/agentic_disassembly
+source .venv/bin/activate
+python -c "import torch, transformers, cv2, numpy, pandas, pyarrow, rosbags; print('uv env OK', torch.cuda.is_available())"
+```
+
 ## New Machine Docker Setup
 
 This section assumes:
@@ -141,37 +215,39 @@ colcon build
 source /workspace/disassembly_ws/install/setup.bash
 ```
 
-### 3. Create The Repo-Local Python 3.12 Virtual Environment
+### 3. Clone The Pinned LeRobot Revision
 
 Run this inside the container:
 
 ```bash
 cd /workspace/disassembly_ws/src/agentic_disassembly
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-```
-
-### 4. Install LeRobot And Model-Side Python Dependencies
-
-Run this inside the container:
-
-```bash
-cd /workspace/disassembly_ws/src/agentic_disassembly
-source .venv/bin/activate
+git clone https://github.com/huggingface/lerobot.git lerobot
 cd lerobot
-pip install -e .
+git checkout d762f4bfe8b22045d13483cf7bd15a1e28099678
 ```
 
-If your image does not already contain the required model-side packages, install the missing ones into `.venv`:
+### 4. Create The Repo-Local Python 3.12 Virtual Environment
+
+Run this inside the container:
+
+```bash
+cd /workspace/disassembly_ws/src/agentic_disassembly
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+```
+
+### 5. Install LeRobot And Model-Side Python Dependencies
+
+Run this inside the container:
 
 ```bash
 cd /workspace/disassembly_ws/src/agentic_disassembly
 source .venv/bin/activate
-pip install torch transformers safetensors opencv-python numpy pandas pyarrow rosbags
+uv pip install torch transformers safetensors opencv-python numpy pandas pyarrow rosbags
+uv pip install -e ./lerobot
 ```
 
-### 5. Verify The Two Python Environments
+### 6. Verify The Two Python Environments
 
 ROS side:
 
@@ -189,7 +265,7 @@ source .venv/bin/activate
 python -c "import torch, transformers, cv2, numpy; print('model Python OK', torch.cuda.is_available())"
 ```
 
-### 6. Put The Runtime Assets In Place
+### 7. Put The Runtime Assets In Place
 
 You need these available inside the container:
 
@@ -207,7 +283,7 @@ Relevant paths:
 - training output:
   `/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output`
 
-### 7. Convert The Dataset
+### 8. Convert The Dataset
 
 If you are starting from rosbags on the new machine, run:
 
@@ -222,7 +298,7 @@ python lerobot_pick_place/rosbags_to_leorobot_data/rosbag_to_lerobot.py \
   --gripper-joint-name xarm_gripper_right_drive_joint
 ```
 
-### 8. Start Training
+### 9. Start Training
 
 Run this inside the container:
 
@@ -244,7 +320,7 @@ python -m lerobot.scripts.lerobot_train \
   --policy.use_amp true
 ```
 
-### 9. Find The New Checkpoint
+### 10. Find The New Checkpoint
 
 After training:
 
@@ -253,7 +329,7 @@ cd /workspace/disassembly_ws/src/agentic_disassembly
 find lerobot_pick_place/smolvla_training_output -maxdepth 2 -type d -name pretrained_model | sort
 ```
 
-### 10. Run The Newly Trained Checkpoint
+### 11. Run The Newly Trained Checkpoint
 
 For Isaac:
 
