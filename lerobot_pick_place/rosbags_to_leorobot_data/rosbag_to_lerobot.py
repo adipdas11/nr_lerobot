@@ -99,10 +99,10 @@ def synchronize_data(
         all_timestamps.extend(f["timestamp"] for f in frames)
     t_start = min(all_timestamps)
     t_end = max(all_timestamps)
-    n_frames = max(1, int((t_end - t_start) * fps))
-    # Avoid including the exact end timestamp: that can map to one frame past
-    # the end of the encoded MP4 during LeRobot video decoding.
-    timeline = np.linspace(t_start, t_end, n_frames, endpoint=False)
+    n_frames = int(round((t_end - t_start) * fps))
+    if n_frames < 1: n_frames = 1
+    # Use a slightly more robust timeline calculation
+    timeline = t_start + np.arange(n_frames) / fps
 
     state_joint_names = list(arm_joint_names)
     if gripper_joint_name:
@@ -283,9 +283,9 @@ def convert_bags(
             ep_record[f"videos/observation.images.{cam_name}/chunk_index"] = chunk_idx
             ep_record[f"videos/observation.images.{cam_name}/file_index"]  = file_idx
             ep_record[f"videos/observation.images.{cam_name}/from_timestamp"] = 0.0
-            # Use safe timestamp so we never request a frame that doesn't exist
+            # Use a slightly smaller timestamp to ensure we never hit the index=N boundary
             ep_record[f"videos/observation.images.{cam_name}/to_timestamp"] = (
-                (video_frame_counts[cam_name] - 1) / fps
+                (video_frame_counts[cam_name] - 1.01) / fps
             )
 
         episode_records.append(ep_record)
