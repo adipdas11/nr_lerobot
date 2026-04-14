@@ -27,12 +27,28 @@ HF_CACHE_ROOT = Path.home() / ".cache" / "huggingface" / "hub"
 
 
 def find_latest_model_dir(checkpoint_root: Path) -> Path:
+    direct_model_dir = checkpoint_root / "pretrained_model"
+    if (direct_model_dir / "config.json").is_file():
+        return direct_model_dir
+
     candidates: list[tuple[int, Path]] = []
-    for child in checkpoint_root.iterdir():
-        if child.is_dir() and child.name.isdigit():
-            model_dir = child / "pretrained_model"
-            if (model_dir / "config.json").is_file():
-                candidates.append((int(child.name), model_dir))
+
+    def collect_numeric_children(parent: Path) -> None:
+        if not parent.is_dir():
+            return
+        for child in parent.iterdir():
+            if child.is_dir() and child.name.isdigit():
+                model_dir = child / "pretrained_model"
+                if (model_dir / "config.json").is_file():
+                    candidates.append((int(child.name), model_dir))
+
+    # Support both historical flat layouts:
+    #   smolvla_training_output/065000/pretrained_model
+    # and current checkpoint layouts:
+    #   smolvla_training_output/checkpoints/010000/pretrained_model
+    collect_numeric_children(checkpoint_root)
+    collect_numeric_children(checkpoint_root / "checkpoints")
+
     if not candidates:
         raise FileNotFoundError(f"No pretrained_model found under {checkpoint_root}")
     return max(candidates, key=lambda item: item[0])[1]

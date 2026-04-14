@@ -399,7 +399,13 @@ class MotionBackend:
         # unpredictable motion on real hardware.
         if self._joint_traj_stream_pub is not None:
             traj = JointTrajectory()
-            traj.header.stamp = self.node.get_clock().now().to_msg()
+            # Zero stamp tells the JTC to start this trajectory at the time it is
+            # received, regardless of whether this publisher uses wall clock or sim
+            # time.  A non-zero wall-clock stamp sent to a JTC that runs on sim
+            # time (e.g. Isaac Sim) would be interpreted as a start time billions of
+            # sim-seconds in the future, so the trajectory would never execute.
+            traj.header.stamp.sec = 0
+            traj.header.stamp.nanosec = 0
             traj.joint_names = list(target_joints.keys())
             pt = JointTrajectoryPoint()
             pt.positions = [float(target_joints[name]) for name in traj.joint_names]
