@@ -8,6 +8,54 @@ MODEL_PYTHON_BIN="${MODEL_PYTHON_BIN:-$REPO_ROOT/.venv/bin/python}"
 HARDWARE_TYPE="${HARDWARE_TYPE:-isaac}"
 CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-$SCRIPT_DIR/smolvla_training_output}"
 SOCKET_PATH="${SOCKET_PATH:-/tmp/smolvla_policy.sock}"
+FORWARD_ARGS=()
+
+usage() {
+  cat <<EOF
+Usage:
+  ./run_smolvla_policy.sh [--isaac | --real | --hardware-type <mode>] [smolvla args...]
+
+Hardware selection:
+  --isaac              Run against Isaac Sim topics and controllers
+  --real               Run against real hardware topics and controllers
+  --hardware-type MODE Explicit hardware type: isaac, twin, real, or fake
+
+Examples:
+  ./run_smolvla_policy.sh --isaac
+  ./run_smolvla_policy.sh --real
+  ./run_smolvla_policy.sh --hardware-type real --dry-run --max-chunks 1
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --isaac)
+      HARDWARE_TYPE="isaac"
+      shift
+      ;;
+    --real)
+      HARDWARE_TYPE="real"
+      shift
+      ;;
+    --hardware-type)
+      if [[ $# -lt 2 ]]; then
+        echo "--hardware-type requires a value" >&2
+        usage >&2
+        exit 1
+      fi
+      HARDWARE_TYPE="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      FORWARD_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
 
 if ! command -v "$ROS_PYTHON_BIN" >/dev/null 2>&1; then
   echo "ROS Python executable not found: $ROS_PYTHON_BIN" >&2
@@ -43,10 +91,12 @@ trap cleanup EXIT INT TERM
 
 rm -f "$SOCKET_PATH"
 
+echo "Starting SmolVLA runtime with hardware type: $HARDWARE_TYPE"
+
 "$MODEL_PYTHON_BIN" "$SCRIPT_DIR/smolvla_policy_server.py" \
   --checkpoint-root "$CHECKPOINT_ROOT" \
   --socket-path "$SOCKET_PATH" \
-  "$@" &
+  "${FORWARD_ARGS[@]}" &
 SERVER_PID=$!
 
 for _ in $(seq 1 60); do
@@ -69,4 +119,4 @@ fi
 "$ROS_PYTHON_BIN" "$SCRIPT_DIR/smolvla_ros_client.py" \
   --hardware-type "$HARDWARE_TYPE" \
   --socket-path "$SOCKET_PATH" \
-  "$@"
+  "${FORWARD_ARGS[@]}"
