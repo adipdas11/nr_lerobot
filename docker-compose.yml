@@ -10,19 +10,49 @@ services:
     stdin_open: true
     tty: true
     working_dir: /ws
+    user: "${HOST_UID:-0}:${HOST_GID:-0}"
+    group_add:
+      - "44"   # video group — required to open /dev/video* devices
     environment:
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: "1"
       XAUTHORITY: ${XAUTHORITY:-}
       XDG_RUNTIME_DIR: /tmp/runtime-root
+      # /home/adip doesn't exist inside the container — redirect HOME so ROS
+      # log dirs (~/.ros/log) and other tools have a writable location.
+      HOME: /ws
     volumes:
+      # X11 socket for GUI
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - .:/ws/src/agentic_disassembly
+      - ${HOME}/.Xauthority:/root/.Xauthority:rw
+
+      # Entire workspace — source edits, rosbags, and build artifacts all reflect on the host
+      - ../..:/ws:rw
+
+      # Let the container resolve the host username/group correctly
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
     devices:
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
+      - /dev/video2:/dev/video2
+      - /dev/video3:/dev/video3
+      - /dev/video4:/dev/video4
+      - /dev/video5:/dev/video5
+      - /dev/video6:/dev/video6
+      - /dev/video7:/dev/video7
+      - /dev/video8:/dev/video8
+      - /dev/video9:/dev/video9
+      - /dev/video10:/dev/video10
+      - /dev/video11:/dev/video11
       - /dev/video12:/dev/video12
       - /dev/video13:/dev/video13
-      - /dev/video14:/dev/video14
       - /dev/video15:/dev/video15
+      - /dev/video16:/dev/video16
+      - /dev/media0:/dev/media0
+      - /dev/media1:/dev/media1
+      - /dev/media2:/dev/media2
+      - /dev/media3:/dev/media3
       - /dev/media4:/dev/media4
       - /dev/media5:/dev/media5
     command: bash

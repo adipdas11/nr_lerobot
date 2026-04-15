@@ -23,12 +23,39 @@ if ! command -v xhost >/dev/null 2>&1; then
 fi
 
 xhost +local:root >/dev/null
+
+# Pass host UID/GID into compose so files created in the container are owned
+# by the current user rather than root.
+export HOST_UID=$(id -u)
+export HOST_GID=$(id -g)
+
 exec "${DOCKER_COMPOSE_ENV[@]}" "${DOCKER_COMPOSE_CMD[@]}" run --rm teleop bash -lc '
   set -e
   cd /ws
-  colcon build --packages-select ros_tcp_endpoint --executor sequential
-  source /ws/install/setup.bash
-  colcon build --packages-select nr_dual_arm_description nr_dual_arm_moveit_config arm_teleop --executor sequential
-  source /ws/install/setup.bash
+
+  # Sentinel: arm_teleop is the last package built — if its install marker exists,
+  # the workspace is already built and we can skip straight to sourcing.
+  BUILT_MARKER=/ws/install/arm_teleop/share/arm_teleop/package.sh
+
+  if [ -f "${BUILT_MARKER}" ]; then
+    echo "[run_teleop] Workspace already built — skipping colcon build."
+    source /ws/install/setup.bash
+  else
+    echo "[run_teleop] Building workspace..."
+    colcon build --packages-select ros_tcp_endpoint --executor sequential
+    source /ws/install/setup.bash
+    colcon build --packages-select \
+      exotica_core \
+      exotica_collision_scene_fcl_latest \
+      exotica_core_task_maps \
+      exotica_ik_solver \
+      exotica_ompl_solver \
+      exotica_python \
+      --executor sequential
+    source /ws/install/setup.bash
+    colcon build --packages-select nr_dual_arm_description nr_dual_arm_moveit_config arm_teleop --executor sequential
+    source /ws/install/setup.bash
+  fi
+
   exec bash
 '
