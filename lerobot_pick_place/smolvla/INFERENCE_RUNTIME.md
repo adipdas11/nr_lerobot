@@ -392,26 +392,110 @@ Notes:
 
 ## Training
 
-Train against the regenerated dataset only.
+Two policies are available. Both use the same rosbag source and LeRobot v3.0
+dataset format. Choose the one that fits your data size and compute budget.
 
-Training output root:
+| Policy | Data needed | GPU memory | Inference latency | Language-conditioned |
+|--------|-------------|------------|-------------------|----------------------|
+| **ACT** | 20–50 ep | ~6 GB | ~50–100 ms | No |
+| **SmolVLA** | 50–200 ep | ~16 GB | ~500–1000 ms | Yes |
 
-- `/home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output`
+---
 
-<details>
-<summary>Run SmolVLA training</summary>
+### ACT Training
+
+ACT is faster to train and infer, more data-efficient, and the recommended
+starting point with fewer than 50 episodes.
+
+**Paths:**
+- Dataset: `lerobot_pick_place/act/lerobot_converted_dataset/pick_place_act`
+- Output:  `lerobot_pick_place/act/training_output`
+
+**Step 1 — Convert rosbags (if not already done):**
+
+```bash
+cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
+source .venv/bin/activate
+
+python lerobot_pick_place/act/rosbag_to_lerobot_act.py \
+  --dir lerobot_pick_place/act/rosbags \
+  --output lerobot_pick_place/act/lerobot_converted_dataset/pick_place_act \
+  --validate
+```
+
+**Step 2 — Train:**
 
 ```bash
 cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 source .venv/bin/activate
 cd lerobot
+
+python -m lerobot.scripts.lerobot_train \
+  --policy.type act \
+  --dataset.repo_id my_act_dataset \
+  --dataset.root /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/act/lerobot_converted_dataset/pick_place_act \
+  --dataset.use_imagenet_stats true \
+  --wandb.enable false \
+  --output_dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/act/training_output \
+  --policy.push_to_hub false \
+  --batch_size 8 \
+  --num_workers 4
+```
+
+Typical convergence: **50 000–100 000 steps** for a simple pick-and-place.
+
+**Step 3 — Validate checkpoint before running live:**
+
+```bash
+cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
+./lerobot_pick_place/act/run_act_policy.sh --real --dry-run --max-chunks 2
+```
+
+**Step 4 — Run live inference:**
+
+```bash
+./lerobot_pick_place/act/run_act_policy.sh --real
+# or a specific checkpoint step:
+./lerobot_pick_place/act/run_act_policy.sh --real --checkpoint 050000
+```
+
+---
+
+### SmolVLA Training
+
+SmolVLA is a language-conditioned VLA backed by SmolVLM2-500M. Use it when
+you have 50+ episodes and want the model to generalise across task descriptions.
+
+**Paths:**
+- Dataset: `lerobot_pick_place/smolvla/lerobot_converted_dataset/pick_place_rosbags_lerobot`
+- Output:  `lerobot_pick_place/smolvla/smolvla_training_output`
+
+**Step 1 — Convert rosbags (if not already done):**
+
+```bash
+cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
+source .venv/bin/activate
+
+python lerobot_pick_place/smolvla/rosbag_to_lerobot.py \
+  --dir lerobot_pick_place/smolvla/rosbags \
+  --output lerobot_pick_place/smolvla/lerobot_converted_dataset/pick_place_rosbags_lerobot \
+  --task "pick up the cube"
+```
+
+**Step 2 — Train:**
+
+```bash
+cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
+source .venv/bin/activate
+cd lerobot
+
 python -m lerobot.scripts.lerobot_train \
   --policy.type smolvla \
-  --dataset.repo_id my_dataset \
-  --dataset.root /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/lerobot_converted_dataset/pick_place_rosbags_lerobot \
+  --dataset.repo_id my_smolvla_dataset \
+  --dataset.root /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/lerobot_converted_dataset/pick_place_rosbags_lerobot \
   --dataset.use_imagenet_stats false \
   --wandb.enable false \
-  --output_dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output \
+  --output_dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/smolvla_training_output \
   --policy.push_to_hub false \
   --tolerance_s 0.05 \
   --batch_size 64 \
@@ -419,17 +503,24 @@ python -m lerobot.scripts.lerobot_train \
   --policy.use_amp true
 ```
 
-</details>
+Typical convergence: **100 000–200 000 steps**.
 
-After training, use the checkpoint directory under:
+**Step 3 — Validate checkpoint before running live:**
 
-- `lerobot_pick_place/smolvla_training_output/<STEP>/pretrained_model`
+```bash
+cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
+./lerobot_pick_place/smolvla/run_smolvla_policy.sh --real --dry-run --max-chunks 2
+```
 
-Examples:
+**Step 4 — Run live inference:**
 
-- `060000`
-- `065000`
-- `070000`
+```bash
+./lerobot_pick_place/smolvla/run_smolvla_policy.sh --real
+# or a specific checkpoint step:
+./lerobot_pick_place/smolvla/run_smolvla_policy.sh --real --checkpoint 050000
+```
+
+Checkpoints land in `smolvla/smolvla_training_output/checkpoints/<STEP>/pretrained_model`.
 
 ## Inference In Isaac
 

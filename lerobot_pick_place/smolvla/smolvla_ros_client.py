@@ -64,18 +64,28 @@ class SmolVLARosClient(Node):
         self._dry_run = args.dry_run
         self._action_fps = float(args.action_fps)
         self._prediction_period_s = float(args.prediction_period_s)
+        self._prefetch_fraction = float(args.prefetch_fraction)
         self._arm_only = args.arm_only
         self._state_joint_names = parse_csv_list(args.state_joints)
         self._arm_joint_names = parse_csv_list(args.arm_joints)
         self._gripper_joint_name = args.gripper_joint
         self._latest_joint_state: JointState | None = None
         self._latest_images: dict[str, bytes] = {}
+
+        # Current chunk being streamed.
         self._chunk_active = False
         self._pending_actions: np.ndarray | None = None
         self._next_action_index = 0
         self._chunks_sent = 0
         self._max_chunks = args.max_chunks
         self._last_wait_reason: str | None = None
+
+        # Prefetch state — next chunk fetched in background while current one streams.
+        self._prefetch_lock = threading.Lock()
+        self._prefetch_in_flight = False          # background thread running
+        self._prefetched_actions: np.ndarray | None = None  # result ready
+        self._prefetch_triggered = False          # already triggered for this chunk
+
         self.declare_parameter("hardware_type", args.hardware_type)
         self._arm_backend = MotionBackend(self, "xarm5_arm_no_slide", defer_exotica_init=True)
         self._gripper_backend = MotionBackend(self, "xarm_gripper", defer_exotica_init=True)
@@ -93,10 +103,15 @@ class SmolVLARosClient(Node):
             lambda msg: self._image_cb("camera2", msg),
             5,
         )
+        # Idle timer: fires only to kick off the very first chunk (or recover after errors).
         self._timer = self.create_timer(self._prediction_period_s, self._timer_cb)
         self._stream_timer = self.create_timer(1.0 / self._action_fps, self._stream_timer_cb)
         self.get_logger().info(f"SmolVLA socket path: {self._socket_path}")
         self.get_logger().info(f"Joint topic: {args.joint_topic}")
+        self.get_logger().info(
+            f"Prefetch fraction: {self._prefetch_fraction} "
+            f"(next prediction starts at {self._prefetch_fraction*100:.0f}% through current chunk)"
+        )
         if self._dry_run:
             self.get_logger().info("Dry-run mode enabled: controller goals will not be sent.")
         if self._arm_only:
@@ -110,27 +125,52 @@ class SmolVLARosClient(Node):
         with self._lock:
             self._latest_images[camera_name] = bytes(msg.data)
 
-    def _timer_cb(self) -> None:
-        if self._chunk_active:
-            return
-        if self._max_chunks is not None and self._chunks_sent >= self._max_chunks:
-            self.get_logger().info("Reached max_chunks limit, stopping inference loop.")
-            self._timer.cancel()
-            return
+    # ------------------------------------------------------------------
+    # Prediction helpers
+    # ------------------------------------------------------------------
 
+    def _fetch_prediction(self) -> np.ndarray | None:
+        """Blocking prediction call — run this in a background thread."""
         request = self._build_request()
         if request is None:
-            return
+            return None
         try:
             response = self._request_prediction(request)
         except Exception as exc:
             self.get_logger().error(f"Policy server request failed: {exc}")
-            return
+            return None
         if not response.get("ok", False):
             self.get_logger().error(f"Policy server returned error: {response.get('error')}")
-            return
+            return None
+        return np.asarray(response["actions"], dtype=np.float32)
 
-        actions = np.asarray(response["actions"], dtype=np.float32)
+    def _start_prefetch(self) -> None:
+        """Kick off a background prediction thread if none is in flight."""
+        with self._prefetch_lock:
+            if self._prefetch_in_flight or self._prefetched_actions is not None:
+                return
+            self._prefetch_in_flight = True
+
+        def _worker():
+            actions = self._fetch_prediction()
+            with self._prefetch_lock:
+                self._prefetch_in_flight = False
+                if actions is not None:
+                    self._prefetched_actions = actions
+                    self.get_logger().info(
+                        f"Prefetch ready: next chunk in buffer "
+                        f"(arm=[{float(actions[:, :len(self._arm_joint_names)].min()):.3f}, "
+                        f"{float(actions[:, :len(self._arm_joint_names)].max()):.3f}] "
+                        f"grip=[{float(actions[:, -1].min()):.3f}, "
+                        f"{float(actions[:, -1].max()):.3f}])"
+                    )
+                else:
+                    self.get_logger().warning("Prefetch returned no actions — will retry on next cycle.")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _activate_chunk(self, actions: np.ndarray) -> None:
+        """Make a fetched action array the active chunk. Called from stream timer."""
         self._chunks_sent += 1
         if self._dry_run:
             arm_min = float(actions[:, : len(self._arm_joint_names)].min())
@@ -138,35 +178,85 @@ class SmolVLARosClient(Node):
             grip_min = float(actions[:, -1].min())
             grip_max = float(actions[:, -1].max())
             self.get_logger().info(
-                "Predicted chunk "
-                f"{self._chunks_sent}: arm range=[{arm_min:.4f}, {arm_max:.4f}] "
-                f"gripper range=[{grip_min:.4f}, {grip_max:.4f}]"
+                f"Predicted chunk {self._chunks_sent}: "
+                f"arm=[{arm_min:.4f}, {arm_max:.4f}] grip=[{grip_min:.4f}, {grip_max:.4f}]"
             )
             return
-
-        arm_min = float(actions[:, : len(self._arm_joint_names)].min())
-        arm_max = float(actions[:, : len(self._arm_joint_names)].max())
-        grip_min = float(actions[:, -1].min())
-        grip_max = float(actions[:, -1].max())
-        self.get_logger().info(
-            "Predicted live chunk "
-            f"{self._chunks_sent}: arm range=[{arm_min:.4f}, {arm_max:.4f}] "
-            f"gripper range=[{grip_min:.4f}, {grip_max:.4f}]"
-        )
         self._pending_actions = actions
         self._next_action_index = 0
+        self._prefetch_triggered = False
         self._chunk_active = True
+
+    # ------------------------------------------------------------------
+    # Timer callbacks
+    # ------------------------------------------------------------------
+
+    def _timer_cb(self) -> None:
+        """Idle-path timer: starts the first chunk or recovers after a prefetch miss."""
+        if self._chunk_active:
+            return
+        if self._max_chunks is not None and self._chunks_sent >= self._max_chunks:
+            self.get_logger().info("Reached max_chunks limit, stopping inference loop.")
+            self._timer.cancel()
+            return
+
+        # If the prefetch already landed, activate it immediately.
+        with self._prefetch_lock:
+            prefetched = self._prefetched_actions
+            if prefetched is not None:
+                self._prefetched_actions = None
+
+        if prefetched is not None:
+            self._activate_chunk(prefetched)
+            return
+
+        # No prefetch ready — block and fetch now (first chunk or error recovery).
+        with self._prefetch_lock:
+            if self._prefetch_in_flight:
+                return  # background thread is running, wait for it
+
+        actions = self._fetch_prediction()
+        if actions is None:
+            return
+        self._activate_chunk(actions)
 
     def _stream_timer_cb(self) -> None:
         if not self._chunk_active or self._pending_actions is None:
             return
-        if self._next_action_index >= len(self._pending_actions):
-            self.get_logger().info("Finished streaming current action chunk")
+
+        chunk_len = len(self._pending_actions)
+
+        # Trigger prefetch when we reach prefetch_fraction through the current chunk.
+        if not self._prefetch_triggered:
+            prefetch_threshold = int(chunk_len * self._prefetch_fraction)
+            if self._next_action_index >= prefetch_threshold:
+                if self._max_chunks is None or self._chunks_sent < self._max_chunks:
+                    self._prefetch_triggered = True
+                    self._start_prefetch()
+
+        # Chunk finished — hand off to prefetched result with zero gap.
+        if self._next_action_index >= chunk_len:
+            self.get_logger().info(f"Chunk {self._chunks_sent} finished — checking prefetch buffer")
+            with self._prefetch_lock:
+                prefetched = self._prefetched_actions
+                if prefetched is not None:
+                    self._prefetched_actions = None
+
             self._pending_actions = None
             self._next_action_index = 0
             self._chunk_active = False
+
+            if prefetched is not None:
+                self.get_logger().info("Prefetch hit — starting next chunk immediately (no gap)")
+                self._activate_chunk(prefetched)
+            else:
+                self.get_logger().warning(
+                    "Prefetch miss — waiting for background prediction to complete"
+                )
+                # The idle _timer_cb will pick up when the prefetch lands.
             return
 
+        # Stream current step.
         row = self._pending_actions[self._next_action_index]
         arm_targets = {
             name: float(value)
@@ -178,7 +268,8 @@ class SmolVLARosClient(Node):
             self._gripper_backend._publish_direct_joint_command(gripper_target)
         if self._next_action_index == 0:
             self.get_logger().info(
-                f"Streaming chunk start: arm={arm_targets} gripper={gripper_target}"
+                f"Streaming chunk {self._chunks_sent} start: "
+                f"arm={arm_targets} gripper={gripper_target}"
             )
         self._next_action_index += 1
 
@@ -231,6 +322,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera2-topic", default=DEFAULT_CAMERA2_TOPIC)
     parser.add_argument("--action-fps", type=float, default=30.0)
     parser.add_argument("--prediction-period-s", type=float, default=1.67)
+    parser.add_argument(
+        "--prefetch-fraction",
+        type=float,
+        default=0.5,
+        help="Start fetching the next chunk when this fraction of the current one has been streamed "
+             "(0.5 = halfway). Prediction must complete before the chunk ends to avoid a gap.",
+    )
     parser.add_argument("--arm-joints", default=",".join(DEFAULT_ARM_JOINTS))
     parser.add_argument("--gripper-joint", default=DEFAULT_GRIPPER_JOINT)
     parser.add_argument("--state-joints", default=",".join(DEFAULT_STATE_JOINTS))

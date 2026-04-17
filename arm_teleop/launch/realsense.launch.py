@@ -27,6 +27,7 @@ def _camera_node(enable_arg: str, name_arg: str, serial_arg: str):
                 "enable_accel": False,
                 "enable_infra1": False,
                 "enable_infra2": False,
+                "publish_tf": False,
             }
         ],
         condition=IfCondition(LaunchConfiguration(enable_arg)),
