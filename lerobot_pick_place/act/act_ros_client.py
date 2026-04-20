@@ -206,12 +206,38 @@ class ACTRosClient(Node):
                 f"[DRY-RUN] Chunk {self._chunks_sent}: shape={actions.shape} "
                 f"arm=[{arm_min:.4f}, {arm_max:.4f}] grip=[{grip_min:.4f}, {grip_max:.4f}]"
             )
+            self._pending_actions = actions
+            self._next_action_index = 0
+            self._prefetch_triggered = False
+            self._chunk_active = True
             return
 
         self.get_logger().info(
             f"Activating chunk {self._chunks_sent}: shape={actions.shape} "
             f"arm=[{arm_min:.4f}, {arm_max:.4f}] grip=[{grip_min:.4f}, {grip_max:.4f}]"
         )
+
+        # Publish the full chunk as a single JointTrajectory so the controller
+        # receives the complete motion plan in one message.  Sending individual
+        # single-point trajectories at 30 Hz causes Isaac Sim's JTC to queue
+        # them rather than execute immediately, so motion would be deferred
+        # until the publisher disconnects.
+        n_arm = len(self._arm_joint_names)
+        arm_positions = [list(row[:n_arm]) for row in actions]
+        self._arm_backend.publish_action_chunk(
+            self._arm_joint_names, arm_positions, self._action_fps
+        )
+        if not self._arm_only:
+            grip_positions = [[float(row[-1])] for row in actions]
+            self._gripper_backend.publish_action_chunk(
+                [self._gripper_joint_name], grip_positions, self._action_fps
+            )
+
+        self.get_logger().info(
+            f"Chunk {self._chunks_sent} sent: arm[0]="
+            + str({n: f"{v:.3f}" for n, v in zip(self._arm_joint_names, arm_positions[0])})
+        )
+
         self._pending_actions = actions
         self._next_action_index = 0
         self._prefetch_triggered = False
@@ -280,20 +306,8 @@ class ACTRosClient(Node):
                 self.get_logger().warning("Prefetch miss — waiting for background prediction")
             return
 
-        # Stream one step.
-        row = self._pending_actions[self._next_action_index]
-        arm_targets = {
-            name: float(val)
-            for name, val in zip(self._arm_joint_names, row[: len(self._arm_joint_names)])
-        }
-        gripper_target = {self._gripper_joint_name: float(row[-1])}
-        self._arm_backend._publish_direct_joint_command(arm_targets)
-        if not self._arm_only:
-            self._gripper_backend._publish_direct_joint_command(gripper_target)
-        if self._next_action_index == 0:
-            self.get_logger().info(
-                f"Chunk {self._chunks_sent} streaming: arm={arm_targets} gripper={gripper_target}"
-            )
+        # Advance progress counter (the full trajectory was already published
+        # in _activate_chunk; this counter drives prefetch timing only).
         self._next_action_index += 1
 
 

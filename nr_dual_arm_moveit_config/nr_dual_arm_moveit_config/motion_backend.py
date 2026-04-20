@@ -415,6 +415,39 @@ class MotionBackend:
             traj.points = [pt]
             self._joint_traj_stream_pub.publish(traj)
 
+    def publish_action_chunk(
+        self,
+        joint_names: list[str],
+        positions_sequence: list[list[float]],
+        fps: float,
+    ) -> None:
+        """Publish a full multi-step action chunk as a single JointTrajectory.
+
+        Isaac Sim's JTC queues individual single-point trajectories instead of
+        replacing them, so streaming one step at a time causes motion to be
+        deferred until the publisher disconnects.  Sending the full chunk as one
+        message with proper time_from_start spacing lets Isaac Sim (and real
+        ros2_control) execute the motion immediately and continuously.
+        """
+        if self._joint_traj_stream_pub is None:
+            return
+        traj = JointTrajectory()
+        traj.header.stamp.sec = 0
+        traj.header.stamp.nanosec = 0
+        traj.joint_names = joint_names
+        step_ns = int(1_000_000_000 / fps)
+        for i, positions in enumerate(positions_sequence):
+            total_ns = (i + 1) * step_ns
+            pt = JointTrajectoryPoint()
+            pt.positions = [float(p) for p in positions]
+            pt.velocities = [0.0] * len(positions)
+            pt.time_from_start = Duration(
+                sec=total_ns // 1_000_000_000,
+                nanosec=total_ns % 1_000_000_000,
+            )
+            traj.points.append(pt)
+        self._joint_traj_stream_pub.publish(traj)
+
     def _hold_current_arm_position(self):
         hold_joints = {
             name: float(self.current_joint_positions[name])

@@ -78,4 +78,4 @@ log/
 # SmolVLA local data
 **/rosbags
 **/lerobot_converted_dataset
-**/smolvla_training_output/
+**/training_output/
