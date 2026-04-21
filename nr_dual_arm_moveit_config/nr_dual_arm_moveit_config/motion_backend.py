@@ -435,12 +435,25 @@ class MotionBackend:
         traj.header.stamp.sec = 0
         traj.header.stamp.nanosec = 0
         traj.joint_names = joint_names
+        step_s = 1.0 / fps
         step_ns = int(1_000_000_000 / fps)
+        n = len(positions_sequence)
+        n_joints = len(positions_sequence[0]) if n > 0 else 0
         for i, positions in enumerate(positions_sequence):
             total_ns = (i + 1) * step_ns
             pt = JointTrajectoryPoint()
             pt.positions = [float(p) for p in positions]
-            pt.velocities = [0.0] * len(positions)
+            # Finite-difference velocities let the JTC smoothly flow through
+            # waypoints rather than stopping at every 33 ms point.  First and
+            # last points get zero velocity so the chunk starts/ends cleanly.
+            if i == 0 or i == n - 1:
+                pt.velocities = [0.0] * n_joints
+            else:
+                pt.velocities = [
+                    float(positions_sequence[i + 1][j] - positions_sequence[i - 1][j])
+                    / (2.0 * step_s)
+                    for j in range(n_joints)
+                ]
             pt.time_from_start = Duration(
                 sec=total_ns // 1_000_000_000,
                 nanosec=total_ns % 1_000_000_000,

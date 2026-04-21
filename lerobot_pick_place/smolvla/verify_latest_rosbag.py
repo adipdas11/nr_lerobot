@@ -22,7 +22,7 @@ from rosbags.typesys import Stores, get_typestore
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_BAGS_DIR = SCRIPT_DIR / "pick_place_rosbags"
+DEFAULT_BAGS_DIR = SCRIPT_DIR / "rosbags"
 DEFAULT_JOINT_TOPIC = "/joint_states"
 DEFAULT_CAMERA1_TOPIC = "/camera1/realsense_camera/color/image_raw/compressed"
 DEFAULT_CAMERA2_TOPIC = "/camera2/realsense_camera/color/image_raw/compressed"

@@ -59,7 +59,6 @@ class ACTRosClient(Node):
         self._dry_run = args.dry_run
         self._action_fps = float(args.action_fps)
         self._prediction_period_s = float(args.prediction_period_s)
-        self._prefetch_fraction = float(args.prefetch_fraction)
         self._arm_only = args.arm_only
         self._state_joint_names = parse_csv_list(args.state_joints)
         self._arm_joint_names = parse_csv_list(args.arm_joints)
@@ -79,7 +78,6 @@ class ACTRosClient(Node):
         self._prefetch_lock = threading.Lock()
         self._prefetch_in_flight = False
         self._prefetched_actions: np.ndarray | None = None
-        self._prefetch_triggered = False
 
         self.declare_parameter("hardware_type", args.hardware_type)
         self._arm_backend = MotionBackend(self, "xarm5_arm_no_slide", defer_exotica_init=True)
@@ -99,10 +97,7 @@ class ACTRosClient(Node):
 
         self.get_logger().info(f"ACT socket path: {self._socket_path}")
         self.get_logger().info(f"Joint topic: {args.joint_topic}")
-        self.get_logger().info(
-            f"Prefetch fraction: {self._prefetch_fraction} "
-            f"(next prediction starts at {self._prefetch_fraction*100:.0f}% through current chunk)"
-        )
+        self.get_logger().info("Prediction mode: fresh prediction after each chunk (no mid-chunk prefetch)")
         if self._dry_run:
             self.get_logger().info("Dry-run mode: commands will NOT be sent to the robot.")
         if self._arm_only:
@@ -208,7 +203,6 @@ class ACTRosClient(Node):
             )
             self._pending_actions = actions
             self._next_action_index = 0
-            self._prefetch_triggered = False
             self._chunk_active = True
             return
 
@@ -240,7 +234,6 @@ class ACTRosClient(Node):
 
         self._pending_actions = actions
         self._next_action_index = 0
-        self._prefetch_triggered = False
         self._chunk_active = True
 
     # ------------------------------------------------------------------
@@ -274,40 +267,42 @@ class ACTRosClient(Node):
         self._activate_chunk(actions)
 
     def _stream_timer_cb(self) -> None:
+        # When idle, poll at stream rate for a completed prediction and
+        # activate it as soon as it arrives.  This gives a gap of only
+        # ~inference-latency (~0.5-2 s) instead of the full _timer period.
         if not self._chunk_active or self._pending_actions is None:
-            return
-
-        chunk_len = len(self._pending_actions)
-
-        # Trigger background prefetch at the configured fraction.
-        if not self._prefetch_triggered:
-            threshold = int(chunk_len * self._prefetch_fraction)
-            if self._next_action_index >= threshold:
-                if self._max_chunks is None or self._chunks_sent < self._max_chunks:
-                    self._prefetch_triggered = True
-                    self._start_prefetch()
-
-        # Chunk exhausted — hand off immediately or wait for prefetch.
-        if self._next_action_index >= chunk_len:
-            self.get_logger().info(f"Chunk {self._chunks_sent} finished")
+            if self._max_chunks is not None and self._chunks_sent >= self._max_chunks:
+                return
             with self._prefetch_lock:
                 prefetched = self._prefetched_actions
                 if prefetched is not None:
                     self._prefetched_actions = None
+            if prefetched is not None:
+                self._activate_chunk(prefetched)
+            return
 
+        chunk_len = len(self._pending_actions)
+
+        # Chunk exhausted — request a fresh prediction immediately.
+        if self._next_action_index >= chunk_len:
+            self.get_logger().info(f"Chunk {self._chunks_sent} finished")
             self._pending_actions = None
             self._next_action_index = 0
             self._chunk_active = False
-
-            if prefetched is not None:
-                self.get_logger().info("Prefetch hit — starting next chunk (no gap)")
-                self._activate_chunk(prefetched)
-            else:
-                self.get_logger().warning("Prefetch miss — waiting for background prediction")
+            # Discard any prefetch that was taken from a mid-chunk observation.
+            # Reusing it would make the robot move backward to that earlier
+            # position, causing the "backing-off" jerk between chunks.
+            with self._prefetch_lock:
+                self._prefetched_actions = None
+            # Start a fresh prediction from the robot's current (end-of-chunk)
+            # state.  _stream_timer_cb will activate it within one poll cycle
+            # (~33 ms) of it arriving.
+            if self._max_chunks is None or self._chunks_sent < self._max_chunks:
+                self._start_prefetch()
             return
 
         # Advance progress counter (the full trajectory was already published
-        # in _activate_chunk; this counter drives prefetch timing only).
+        # in _activate_chunk; this counter drives chunk-end detection only).
         self._next_action_index += 1
 
 
@@ -326,9 +321,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action-fps", type=float, default=30.0,
                         help="Rate at which action steps are streamed to the robot (Hz)")
     parser.add_argument("--prediction-period-s", type=float, default=3.33,
-                        help="Timer period for idle/recovery prediction requests (100 steps / 30 Hz)")
-    parser.add_argument("--prefetch-fraction", type=float, default=0.5,
-                        help="Start next prediction when this fraction of the current chunk is done")
+                        help="Timer period for the initial/recovery prediction (100 steps / 30 Hz)")
     parser.add_argument("--arm-joints", default=",".join(DEFAULT_ARM_JOINTS))
     parser.add_argument("--gripper-joint", default=DEFAULT_GRIPPER_JOINT)
     parser.add_argument("--state-joints", default=",".join(DEFAULT_STATE_JOINTS))
