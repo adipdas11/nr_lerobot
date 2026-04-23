@@ -20,7 +20,12 @@ from smolvla_ipc import recv_message, send_message
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CHECKPOINT_ROOT = SCRIPT_DIR / "smolvla_training_output"
+DEFAULT_CHECKPOINT_ROOT = (
+    (SCRIPT_DIR / "smolvla_training_output")
+    if (SCRIPT_DIR / "smolvla_training_output").is_dir()
+    else (SCRIPT_DIR / "training_output")
+)
+
 DEFAULT_SOCKET_PATH = "/tmp/smolvla_policy.sock"
 DEFAULT_TASK = "pick up the cube"
 HF_CACHE_ROOT = Path.home() / ".cache" / "huggingface" / "hub"
@@ -43,9 +48,9 @@ def find_latest_model_dir(checkpoint_root: Path) -> Path:
                     candidates.append((int(child.name), model_dir))
 
     # Support both historical flat layouts:
-    #   smolvla_training_output/065000/pretrained_model
+    #   training_output/065000/pretrained_model
     # and current checkpoint layouts:
-    #   smolvla_training_output/checkpoints/010000/pretrained_model
+    #   training_output/checkpoints/010000/pretrained_model
     collect_numeric_children(checkpoint_root)
     collect_numeric_children(checkpoint_root / "checkpoints")
 

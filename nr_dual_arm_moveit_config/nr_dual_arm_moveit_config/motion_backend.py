@@ -420,6 +420,7 @@ class MotionBackend:
         joint_names: list[str],
         positions_sequence: list[list[float]],
         fps: float,
+        start_positions: list[float] | None = None,
     ) -> None:
         """Publish a full multi-step action chunk as a single JointTrajectory.
 
@@ -428,6 +429,11 @@ class MotionBackend:
         deferred until the publisher disconnects.  Sending the full chunk as one
         message with proper time_from_start spacing lets Isaac Sim (and real
         ros2_control) execute the motion immediately and continuously.
+
+        If start_positions is given it is prepended as a time=0 anchor at the
+        robot's actual current joint positions.  This eliminates the small
+        position-mismatch discontinuity that occurs at chunk boundaries when the
+        robot has drifted slightly from where the previous trajectory ended.
         """
         if self._joint_traj_stream_pub is None:
             return
@@ -437,26 +443,54 @@ class MotionBackend:
         traj.joint_names = joint_names
         step_s = 1.0 / fps
         step_ns = int(1_000_000_000 / fps)
-        n = len(positions_sequence)
-        n_joints = len(positions_sequence[0]) if n > 0 else 0
-        for i, positions in enumerate(positions_sequence):
-            total_ns = (i + 1) * step_ns
+
+        # Prepend robot's current position as a time=0 anchor when provided.
+        all_pts: list[list[float]] = (
+            [list(start_positions)] + list(positions_sequence)
+            if start_positions is not None
+            else list(positions_sequence)
+        )
+        has_anchor = start_positions is not None
+        n = len(all_pts)
+        n_joints = len(all_pts[0]) if n > 0 else 0
+
+        for i, positions in enumerate(all_pts):
             pt = JointTrajectoryPoint()
             pt.positions = [float(p) for p in positions]
-            # Finite-difference velocities let the JTC smoothly flow through
-            # waypoints rather than stopping at every 33 ms point.  First and
-            # last points get zero velocity so the chunk starts/ends cleanly.
-            if i == 0 or i == n - 1:
+
+            # With an anchor:
+            #   i=0  anchor (current pos): v=0
+            #   i=1  action[0]:            v=0  ← ease-in: 99 ms ramp from rest
+            #   i=2..n-2 action[1..]:      central-difference velocity
+            #   i=n-1 last action:         v=0
+            # Without anchor, same as before: first and last get v=0.
+            if has_anchor:
+                is_zero_vel = (i <= 1 or i == n - 1)
+            else:
+                is_zero_vel = (i == 0 or i == n - 1)
+
+            if is_zero_vel:
                 pt.velocities = [0.0] * n_joints
             else:
                 pt.velocities = [
-                    float(positions_sequence[i + 1][j] - positions_sequence[i - 1][j])
-                    / (2.0 * step_s)
+                    float(all_pts[i + 1][j] - all_pts[i - 1][j]) / (2.0 * step_s)
                     for j in range(n_joints)
                 ]
+
+            # Timing:
+            #   no anchor: action[k] at (k+1)*step_ns  (original behaviour)
+            #   with anchor:
+            #     anchor     at t=0
+            #     action[0]  at t=3*step_ns  (99 ms gap → smooth ramp from rest)
+            #     action[k]  at t=(k+2)*step_ns  (normal 33 ms spacing after that)
+            if has_anchor:
+                time_ns = 0 if i == 0 else (i + 2) * step_ns
+            else:
+                time_ns = (i + 1) * step_ns
+
             pt.time_from_start = Duration(
-                sec=total_ns // 1_000_000_000,
-                nanosec=total_ns % 1_000_000_000,
+                sec=time_ns // 1_000_000_000,
+                nanosec=time_ns % 1_000_000_000,
             )
             traj.points.append(pt)
         self._joint_traj_stream_pub.publish(traj)

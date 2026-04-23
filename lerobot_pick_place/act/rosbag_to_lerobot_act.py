@@ -350,8 +350,12 @@ def convert_bags(
             "min":  arr.min(axis=0).tolist(),
             "max":  arr.max(axis=0).tolist(),
         }
+    # Camera entries need mean/std keys so --dataset.use_imagenet_stats can overwrite them.
     for cam_name in camera_names:
-        stats[f"observation.images.{cam_name}"] = {}
+        stats[f"observation.images.{cam_name}"] = {
+            "mean": [0.485, 0.456, 0.406],
+            "std":  [0.229, 0.224, 0.225],
+        }
     with open(meta_dir / "stats.json", "w") as f:
         json.dump(stats, f, indent=2)
 

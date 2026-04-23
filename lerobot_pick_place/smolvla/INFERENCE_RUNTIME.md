@@ -56,7 +56,7 @@ Main files used in the current flow:
 - `lerobot_converted_dataset/`
   Converted training dataset.
 
-- `smolvla_training_output/`
+- `training_output/` (or `smolvla_training_output/`)
   Training outputs and checkpoints.
 
 Legacy file:
@@ -281,7 +281,7 @@ Relevant paths:
 - converted dataset:
   `/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/lerobot_converted_dataset/pick_place_rosbags_lerobot`
 - training output:
-  `/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output`
+  `/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output`
 
 ### 8. Convert The Dataset
 
@@ -312,7 +312,7 @@ python -m lerobot.scripts.lerobot_train \
   --dataset.root /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/lerobot_converted_dataset/pick_place_rosbags_lerobot \
   --dataset.use_imagenet_stats false \
   --wandb.enable false \
-  --output_dir /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output \
+  --output_dir /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output \
   --policy.push_to_hub false \
   --tolerance_s 0.05 \
   --batch_size 64 \
@@ -326,7 +326,7 @@ After training:
 
 ```bash
 cd /workspace/disassembly_ws/src/agentic_disassembly
-find lerobot_pick_place/smolvla_training_output -maxdepth 2 -type d -name pretrained_model | sort
+find lerobot_pick_place/smolvla/training_output -maxdepth 2 -type d -name pretrained_model | sort
 ```
 
 ### 11. Run The Newly Trained Checkpoint
@@ -337,7 +337,7 @@ For Isaac:
 cd /workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/run_smolvla_policy.sh \
   --hardware-type isaac \
-  --model-dir /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output/<NEW_CHECKPOINT>/pretrained_model \
+  --model-dir /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output/<NEW_CHECKPOINT>/pretrained_model \
   --camera1-topic /camera1/realsense_camera/color/image_raw/compressed \
   --camera2-topic /camera2/realsense_camera/color/image_raw/compressed \
   --dry-run \
@@ -350,7 +350,7 @@ For real hardware:
 cd /workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/run_smolvla_policy.sh \
   --hardware-type real \
-  --model-dir /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output/<NEW_CHECKPOINT>/pretrained_model \
+  --model-dir /workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output/<NEW_CHECKPOINT>/pretrained_model \
   --camera1-topic /camera1/realsense_camera/color/image_raw/compressed \
   --camera2-topic /camera2/realsense_camera/color/image_raw/compressed \
   --dry-run \
@@ -468,7 +468,7 @@ you have 50+ episodes and want the model to generalise across task descriptions.
 
 **Paths:**
 - Dataset: `lerobot_pick_place/smolvla/lerobot_converted_dataset/pick_place_rosbags_lerobot`
-- Output:  `lerobot_pick_place/smolvla/smolvla_training_output`
+- Output:  `lerobot_pick_place/smolvla/training_output`
 
 **Step 1 — Convert rosbags (if not already done):**
 
@@ -495,7 +495,7 @@ python -m lerobot.scripts.lerobot_train \
   --dataset.root /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/lerobot_converted_dataset/pick_place_rosbags_lerobot \
   --dataset.use_imagenet_stats false \
   --wandb.enable false \
-  --output_dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/smolvla_training_output \
+  --output_dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output \
   --policy.push_to_hub false \
   --tolerance_s 0.05 \
   --batch_size 64 \
@@ -520,7 +520,7 @@ cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/smolvla/run_smolvla_policy.sh --real --checkpoint 050000
 ```
 
-Checkpoints land in `smolvla/smolvla_training_output/checkpoints/<STEP>/pretrained_model`.
+Checkpoints land in `smolvla/training_output/checkpoints/<STEP>/pretrained_model`.
 
 ## Inference In Isaac
 
@@ -576,7 +576,7 @@ ros2 run image_transport republish raw compressed \
 cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/run_smolvla_policy.sh \
   --hardware-type isaac \
-  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output/<NEW_CHECKPOINT>/pretrained_model \
+  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output/<NEW_CHECKPOINT>/pretrained_model \
   --camera1-topic /camera1/realsense_camera/color/image_raw/compressed \
   --camera2-topic /camera2/realsense_camera/color/image_raw/compressed \
   --dry-run \
@@ -592,14 +592,14 @@ cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/run_smolvla_policy.sh \
   --hardware-type isaac \
-  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output/<NEW_CHECKPOINT>/pretrained_model \
+  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output/<NEW_CHECKPOINT>/pretrained_model \
   --camera1-topic /camera1/realsense_camera/color/image_raw/compressed \
   --camera2-topic /camera2/realsense_camera/color/image_raw/compressed
 ```
 
 </details>
 
-If you omit `--model-dir`, the wrapper selects the latest numeric checkpoint under `smolvla_training_output/`.
+If you omit `--model-dir`, the wrapper selects the latest numeric checkpoint under `training_output/`.
 
 ## Inference On Real Hardware
 
@@ -668,7 +668,7 @@ ros2 run image_transport republish raw compressed \
 cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/run_smolvla_policy.sh \
   --hardware-type real \
-  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output/<NEW_CHECKPOINT>/pretrained_model \
+  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output/<NEW_CHECKPOINT>/pretrained_model \
   --camera1-topic /camera1/realsense_camera/color/image_raw/compressed \
   --camera2-topic /camera2/realsense_camera/color/image_raw/compressed \
   --dry-run \
@@ -684,14 +684,14 @@ cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 cd /home/adip/workspace/disassembly_ws/src/agentic_disassembly
 ./lerobot_pick_place/run_smolvla_policy.sh \
   --hardware-type real \
-  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla_training_output/<NEW_CHECKPOINT>/pretrained_model \
+  --model-dir /home/adip/workspace/disassembly_ws/src/agentic_disassembly/lerobot_pick_place/smolvla/training_output/<NEW_CHECKPOINT>/pretrained_model \
   --camera1-topic /camera1/realsense_camera/color/image_raw/compressed \
   --camera2-topic /camera2/realsense_camera/color/image_raw/compressed
 ```
 
 </details>
 
-If you omit `--model-dir`, the wrapper selects the latest numeric checkpoint under `smolvla_training_output/`.
+If you omit `--model-dir`, the wrapper selects the latest numeric checkpoint under `training_output/`.
 
 ### Real-Hardware Checks Before Live Run
 

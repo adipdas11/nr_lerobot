@@ -8,7 +8,15 @@ WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ROS_PYTHON_BIN="${ROS_PYTHON_BIN:-python3.10}"
 MODEL_PYTHON_BIN="${MODEL_PYTHON_BIN:-$WORKSPACE_ROOT/.venv/bin/python}"
 HARDWARE_TYPE="${HARDWARE_TYPE:-isaac}"
-CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-$SCRIPT_DIR/smolvla_training_output}"
+# Support both 'smolvla_training_output' and the more generic 'training_output'
+if [[ -z "${CHECKPOINT_ROOT:-}" ]]; then
+  if [[ -d "$SCRIPT_DIR/smolvla_training_output" ]]; then
+    CHECKPOINT_ROOT="$SCRIPT_DIR/smolvla_training_output"
+  else
+    CHECKPOINT_ROOT="$SCRIPT_DIR/training_output"
+  fi
+fi
+
 SOCKET_PATH="${SOCKET_PATH:-/tmp/smolvla_policy.sock}"
 CHECKPOINT_STEP=""   # specific step number, e.g. 010000
 MODEL_DIR=""         # or a fully-qualified path to a pretrained_model dir

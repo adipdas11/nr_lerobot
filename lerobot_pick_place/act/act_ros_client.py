@@ -211,6 +211,20 @@ class ACTRosClient(Node):
             f"arm=[{arm_min:.4f}, {arm_max:.4f}] grip=[{grip_min:.4f}, {grip_max:.4f}]"
         )
 
+        # Read current joint positions to anchor the trajectory start so the
+        # JTC has an explicit time=0 reference at the robot's actual position.
+        # This eliminates position-mismatch jerk at chunk boundaries.
+        with self._lock:
+            joint_msg = self._latest_joint_state
+        start_arm = None
+        start_grip = None
+        if joint_msg is not None:
+            name_to_pos = dict(zip(joint_msg.name, joint_msg.position))
+            if all(jn in name_to_pos for jn in self._arm_joint_names):
+                start_arm = [float(name_to_pos[jn]) for jn in self._arm_joint_names]
+            if self._gripper_joint_name in name_to_pos:
+                start_grip = [float(name_to_pos[self._gripper_joint_name])]
+
         # Publish the full chunk as a single JointTrajectory so the controller
         # receives the complete motion plan in one message.  Sending individual
         # single-point trajectories at 30 Hz causes Isaac Sim's JTC to queue
@@ -219,12 +233,14 @@ class ACTRosClient(Node):
         n_arm = len(self._arm_joint_names)
         arm_positions = [list(row[:n_arm]) for row in actions]
         self._arm_backend.publish_action_chunk(
-            self._arm_joint_names, arm_positions, self._action_fps
+            self._arm_joint_names, arm_positions, self._action_fps,
+            start_positions=start_arm,
         )
         if not self._arm_only:
             grip_positions = [[float(row[-1])] for row in actions]
             self._gripper_backend.publish_action_chunk(
-                [self._gripper_joint_name], grip_positions, self._action_fps
+                [self._gripper_joint_name], grip_positions, self._action_fps,
+                start_positions=start_grip,
             )
 
         self.get_logger().info(

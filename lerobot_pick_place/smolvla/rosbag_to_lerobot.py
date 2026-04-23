@@ -48,9 +48,8 @@ from rosbags.typesys import Stores, get_typestore
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PICK_PLACE_DIR = SCRIPT_DIR.parent
-DEFAULT_BAGS_DIR = SCRIPT_DIR / "pick_place_rosbags"
-DEFAULT_OUTPUT_ROOT = PICK_PLACE_DIR / "lerobot_converted_dataset"
+DEFAULT_BAGS_DIR = SCRIPT_DIR / "rosbags"
+DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "lerobot_converted_dataset"
 
 
 # ─────────────────────────── ROS bag helpers ────────────────────────────────
@@ -376,9 +375,12 @@ def convert_bags(
             "min":  arr.min(axis=0).tolist(),
             "max":  arr.max(axis=0).tolist(),
         }
-    # Camera entries must exist (even empty) to avoid KeyError in use_imagenet_stats path
+    # Camera entries need mean/std keys so --dataset.use_imagenet_stats can overwrite them.
     for cam_name in camera_names:
-        stats[f"observation.images.{cam_name}"] = {}
+        stats[f"observation.images.{cam_name}"] = {
+            "mean": [0.485, 0.456, 0.406],
+            "std":  [0.229, 0.224, 0.225],
+        }
     with open(meta_dir / "stats.json", "w") as f:
         json.dump(stats, f, indent=2)
 
