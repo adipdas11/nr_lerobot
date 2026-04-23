@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CLEAN_BUILD=0
+for arg in "$@"; do
+  if [[ "$arg" == "--clean" ]]; then
+    CLEAN_BUILD=1
+  fi
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
@@ -29,19 +36,26 @@ xhost +local:root >/dev/null
 export HOST_UID=$(id -u)
 export HOST_GID=$(id -g)
 
-exec "${DOCKER_COMPOSE_ENV[@]}" "${DOCKER_COMPOSE_CMD[@]}" run --rm teleop bash -lc '
+exec "${DOCKER_COMPOSE_ENV[@]}" "${DOCKER_COMPOSE_CMD[@]}" run --rm teleop bash -lc "
   set -e
   cd /ws
+
+  CLEAN_BUILD=${CLEAN_BUILD}
+
+  if [ \"\${CLEAN_BUILD}\" = \"1\" ]; then
+    echo '[run_teleop] --clean: removing build/, install/, log/ for a fresh colcon build.'
+    rm -rf /ws/build /ws/install /ws/log
+  fi
 
   # Sentinel: arm_teleop is the last package built — if its install marker exists,
   # the workspace is already built and we can skip straight to sourcing.
   BUILT_MARKER=/ws/install/arm_teleop/share/arm_teleop/package.sh
 
-  if [ -f "${BUILT_MARKER}" ]; then
-    echo "[run_teleop] Workspace already built — skipping colcon build."
+  if [ -f \"\${BUILT_MARKER}\" ]; then
+    echo '[run_teleop] Workspace already built — skipping colcon build.'
     source /ws/install/setup.bash
   else
-    echo "[run_teleop] Building workspace..."
+    echo '[run_teleop] Building workspace...'
     colcon build --packages-select ros_tcp_endpoint --executor sequential
     source /ws/install/setup.bash
     colcon build --packages-select \
@@ -58,4 +72,4 @@ exec "${DOCKER_COMPOSE_ENV[@]}" "${DOCKER_COMPOSE_CMD[@]}" run --rm teleop bash 
   fi
 
   exec bash
-'
+"
