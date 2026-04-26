@@ -84,3 +84,6 @@ log/
 
 # graphify knowledge graph outputs
 graphify-out/
+
+# Submodule ignore files
+lerobot/COLCON_IGNORE
