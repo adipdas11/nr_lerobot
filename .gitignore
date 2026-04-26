@@ -79,3 +79,8 @@ log/
 **/rosbags
 **/lerobot_converted_dataset
 **/training_output/
+
+#Graphify
+
+# graphify knowledge graph outputs
+graphify-out/
