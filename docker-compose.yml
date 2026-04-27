@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     image: agentic-disassembly-teleop:humble
-    container_name: agentic_disassembly_teleop
     network_mode: host
     privileged: true
     stdin_open: true
@@ -12,7 +11,8 @@ services:
     working_dir: /ws
     user: "${HOST_UID:-0}:${HOST_GID:-0}"
     group_add:
-      - "44" # video group — required to open /dev/video* devices
+      - "44" # video group
+      - "46" # plugdev group — required for RealSense and USB devices
     environment:
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: "1"
@@ -26,44 +26,14 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${HOME}/.Xauthority:/root/.Xauthority:rw
 
+      # Device access — mapping the entire /dev is the most robust way
+      # to support RealSense cameras (which need /dev/video*, /dev/media*, and /dev/bus/usb)
+      - /dev:/dev
+
       # Entire workspace — source edits, rosbags, and build artifacts all reflect on the host
       - ../..:/ws:rw
 
       # Let the container resolve the host username/group correctly
       - /etc/passwd:/etc/passwd:ro
       - /etc/group:/etc/group:ro
-    devices:
-      - /dev/video0:/dev/video0
-      - /dev/video1:/dev/video1
-      - /dev/video2:/dev/video2
-      - /dev/video3:/dev/video3
-      - /dev/video4:/dev/video4
-      - /dev/video5:/dev/video5
-      - /dev/video6:/dev/video6
-      - /dev/video7:/dev/video7
-      - /dev/video8:/dev/video8
-      - /dev/video9:/dev/video9
-      - /dev/video10:/dev/video10
-      - /dev/video11:/dev/video11
-      - /dev/video12:/dev/video12
-      - /dev/video13:/dev/video13
-      - /dev/video15:/dev/video15
-      - /dev/video16:/dev/video16
-      - /dev/video17:/dev/video17
-      - /dev/video18:/dev/video18
-      - /dev/video19:/dev/video19
-      - /dev/video20:/dev/video20
-      - /dev/video21:/dev/video21
-      - /dev/video22:/dev/video22
-      - /dev/video23:/dev/video23
-      - /dev/video24:/dev/video24
-      - /dev/video25:/dev/video25
-      - /dev/video26:/dev/video26
-      - /dev/video27:/dev/video27
-      - /dev/media0:/dev/media0
-      - /dev/media1:/dev/media1
-      - /dev/media2:/dev/media2
-      - /dev/media3:/dev/media3
-      - /dev/media4:/dev/media4
-      - /dev/media5:/dev/media5
     command: bash

@@ -217,6 +217,17 @@ class SmolVLARosClient(Node):
             f"Chunk {self._chunks_sent} sent: arm[0]="
             + str({n: f"{v:.3f}" for n, v in zip(self._arm_joint_names, arm_positions[0])})
         )
+        # Per-joint range across the full chunk — useful to confirm the model is commanding motion.
+        chunk_arr = np.array(arm_positions)
+        for ji, jn in enumerate(self._arm_joint_names):
+            lo, hi = float(chunk_arr[:, ji].min()), float(chunk_arr[:, ji].max())
+            self.get_logger().info(
+                f"  {jn}: [{lo:.4f}, {hi:.4f}]  Δ={hi-lo:.4f} rad"
+            )
+        grip_arr = np.array([row[0] for row in grip_positions])
+        self.get_logger().info(
+            f"  gripper: [{float(grip_arr.min()):.4f}, {float(grip_arr.max()):.4f}]  Δ={float(grip_arr.max()-grip_arr.min()):.4f}"
+        )
 
         self._pending_actions = actions
         self._next_action_index = 0
@@ -342,6 +353,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-chunks", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--arm-only", action="store_true")
+    parser.add_argument("--prefetch-fraction", type=float, default=0.5,
+                        help="Fraction of chunk execution after which to start prefetching next chunk.")
     return parser
 
 

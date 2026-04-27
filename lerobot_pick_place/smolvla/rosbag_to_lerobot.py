@@ -92,6 +92,8 @@ def synchronize_data(
     arm_joint_names,
     gripper_joint_name=None,
     default_gripper=1.0,
+    trim_idle_threshold: float = 0.005,
+    trim_idle_frames: int = 5,
 ):
     all_timestamps = [js["timestamp"] for js in joint_states]
     for frames in camera_frames.values():
@@ -137,7 +139,37 @@ def synchronize_data(
         indices = np.clip(indices, 0, len(frames) - 1)
         synced_images[topic] = [frames[i]["image"] for i in indices]
 
-    return (timeline - t_start).astype(np.float32), synced_positions, synced_images
+    # Trim leading idle frames: find the first frame where ANY joint moves by
+    # more than trim_idle_threshold from the start position.
+    start_cut = 0
+    if trim_idle_threshold > 0 and n_frames > trim_idle_frames:
+        ref = synced_positions[0, : len(arm_joint_names)]
+        for fi in range(1, n_frames):
+            delta = np.abs(synced_positions[fi, : len(arm_joint_names)] - ref).max()
+            if delta >= trim_idle_threshold:
+                # Back off by trim_idle_frames to keep a short context before motion
+                start_cut = max(0, fi - trim_idle_frames)
+                break
+
+    # Trim trailing idle frames: find the last frame where ANY joint is still
+    # more than trim_idle_threshold from the FINAL rest position.
+    end_cut = n_frames
+    if trim_idle_threshold > 0 and n_frames > trim_idle_frames:
+        ref = synced_positions[-1, : len(arm_joint_names)]
+        for fi in range(n_frames - 2, -1, -1):
+            delta = np.abs(synced_positions[fi, : len(arm_joint_names)] - ref).max()
+            if delta >= trim_idle_threshold:
+                end_cut = min(n_frames, fi + 1 + trim_idle_frames)
+                break
+
+    if start_cut > 0 or end_cut < n_frames:
+        synced_positions = synced_positions[start_cut:end_cut]
+        timeline = timeline[start_cut:end_cut]
+        for topic in synced_images:
+            synced_images[topic] = synced_images[topic][start_cut:end_cut]
+        n_frames = end_cut - start_cut
+
+    return (timeline - timeline[0]).astype(np.float32), synced_positions, synced_images
 
 
 def get_video_frame_count(video_path: str) -> int:
@@ -189,6 +221,8 @@ def convert_bags(
     arm_joint_names,
     gripper_joint_name,
     default_gripper=1.0,
+    trim_idle_threshold=0.005,
+    trim_idle_frames=5,
 ):
     output = Path(output_dir)
     typestore = get_typestore(Stores.ROS2_HUMBLE)
@@ -214,8 +248,11 @@ def convert_bags(
             arm_joint_names=arm_joint_names,
             gripper_joint_name=gripper_joint_name,
             default_gripper=default_gripper,
+            trim_idle_threshold=trim_idle_threshold,
+            trim_idle_frames=trim_idle_frames,
         )
         n_frames = len(timestamps)
+        print(f"  Frames after idle trim: {n_frames}")
 
         # Build action as the next recorded state.
         actions = np.roll(states, -1, axis=0)
@@ -474,6 +511,25 @@ def main():
     )
     parser.add_argument("--verify",  action="store_true",
                         help="After conversion, verify dataset loads correctly via LeRobot")
+    parser.add_argument(
+        "--trim-idle-threshold",
+        type=float,
+        default=0.005,
+        help=(
+            "Max joint-position change (rad) below which a frame is considered 'idle'. "
+            "Leading and trailing idle frames are stripped so the dataset only contains "
+            "frames where the robot is actually moving. Set to 0 to disable trimming."
+        ),
+    )
+    parser.add_argument(
+        "--trim-idle-frames",
+        type=int,
+        default=5,
+        help=(
+            "Number of context frames to keep before the first motion frame and after "
+            "the last motion frame when trimming idle regions."
+        ),
+    )
     args = parser.parse_args()
 
     input_dir = Path(args.dir).expanduser().resolve()
@@ -509,6 +565,8 @@ def main():
         arm_joint_names=args.arm_joint_names,
         gripper_joint_name=args.gripper_joint_name,
         default_gripper=args.default_gripper,
+        trim_idle_threshold=args.trim_idle_threshold,
+        trim_idle_frames=args.trim_idle_frames,
     )
 
     if args.verify:
