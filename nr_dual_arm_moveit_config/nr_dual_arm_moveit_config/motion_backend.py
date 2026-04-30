@@ -709,6 +709,78 @@ class MotionBackend:
             )
         return success
 
+    def move_to_joint_positions_direct(
+        self,
+        target_joints,
+        duration_sec: float = 8.0,
+        position_tolerance: float = 0.03,
+        timeout_padding_sec: float = 5.0,
+    ) -> bool:
+        self.node.get_logger().info(
+            f"[{self.backend_kind}] move_to_joint_positions_direct: {len(target_joints)} joints, "
+            f"duration={duration_sec:.2f}s"
+        )
+        if self._joint_traj_stream_pub is None:
+            self.node.get_logger().warning(
+                f"[{self.backend_kind}] Direct joint trajectory publisher unavailable, falling back to MoveGroup."
+            )
+            return self.move_to_joint_positions(target_joints, velocity=0.3)
+        if not self._ensure_trajectory_mode():
+            self.node.get_logger().error(
+                f"[{self.backend_kind}] move_to_joint_positions_direct: failed to enter trajectory mode"
+            )
+            return False
+        if not self.state_received.wait(timeout=2.0):
+            self.node.get_logger().error(
+                f"[{self.backend_kind}] move_to_joint_positions_direct: timed out waiting for joint states"
+            )
+            return False
+
+        filtered_targets = {
+            name: float(position)
+            for name, position in target_joints.items()
+            if name.startswith(self.joint_prefixes)
+        }
+        if not filtered_targets:
+            self.node.get_logger().error(
+                f"[{self.backend_kind}] move_to_joint_positions_direct: no matching target joints"
+            )
+            return False
+
+        traj = JointTrajectory()
+        traj.header.stamp.sec = 0
+        traj.header.stamp.nanosec = 0
+        traj.joint_names = list(filtered_targets.keys())
+        pt = JointTrajectoryPoint()
+        pt.positions = [filtered_targets[name] for name in traj.joint_names]
+        pt.velocities = [0.0] * len(traj.joint_names)
+        pt.accelerations = [0.0] * len(traj.joint_names)
+        duration_ns = max(int(duration_sec * 1_000_000_000), 1)
+        pt.time_from_start = Duration(
+            sec=duration_ns // 1_000_000_000,
+            nanosec=duration_ns % 1_000_000_000,
+        )
+        traj.points = [pt]
+        self._joint_traj_stream_pub.publish(traj)
+
+        deadline = time.time() + max(duration_sec, 0.5) + timeout_padding_sec
+        while rclpy.ok() and time.time() < deadline:
+            reached = True
+            for name, target in filtered_targets.items():
+                current = self.current_joint_positions.get(name)
+                if current is None or abs(float(current) - target) > position_tolerance:
+                    reached = False
+                    break
+            if reached:
+                return True
+            time.sleep(0.05)
+
+        self.node.get_logger().error(
+            f"[{self.backend_kind}] move_to_joint_positions_direct timed out after "
+            f"{max(duration_sec, 0.5) + timeout_padding_sec:.1f}s"
+        )
+        return False
+
     def move_to_pose_robust(
         self,
         x: float,
