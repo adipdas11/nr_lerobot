@@ -4,25 +4,36 @@ services:
       context: .
       dockerfile: Dockerfile
     image: agentic-disassembly-teleop:humble
-    container_name: agentic_disassembly_teleop
     network_mode: host
     privileged: true
     stdin_open: true
     tty: true
     working_dir: /ws
+    user: "${HOST_UID:-0}:${HOST_GID:-0}"
+    group_add:
+      - "44" # video group
+      - "46" # plugdev group — required for RealSense and USB devices
     environment:
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: "1"
       XAUTHORITY: ${XAUTHORITY:-}
       XDG_RUNTIME_DIR: /tmp/runtime-root
+      # /home/adip doesn't exist inside the container — redirect HOME so ROS
+      # log dirs (~/.ros/log) and other tools have a writable location.
+      HOME: /ws
     volumes:
+      # X11 socket for GUI
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - .:/ws/src/agentic_disassembly
-    devices:
-      - /dev/video12:/dev/video12
-      - /dev/video13:/dev/video13
-      - /dev/video14:/dev/video14
-      - /dev/video15:/dev/video15
-      - /dev/media4:/dev/media4
-      - /dev/media5:/dev/media5
+      - ${HOME}/.Xauthority:/root/.Xauthority:rw
+
+      # Device access — mapping the entire /dev is the most robust way
+      # to support RealSense cameras (which need /dev/video*, /dev/media*, and /dev/bus/usb)
+      - /dev:/dev
+
+      # Entire workspace — source edits, rosbags, and build artifacts all reflect on the host
+      - ../..:/ws:rw
+
+      # Let the container resolve the host username/group correctly
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
     command: bash

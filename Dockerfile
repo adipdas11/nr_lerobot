@@ -3,6 +3,7 @@ FROM osrf/ros:humble-desktop-full
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-lc"]
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-pip \
@@ -19,6 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libgtk-3-0 \
+    curl \
+    ca-certificates \
     ros-humble-controller-manager \
     ros-humble-controller-manager-msgs \
     ros-humble-geometric-shapes \
@@ -41,7 +44,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-xacro \
  && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir \
+# Install uv for fast python package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Install Python dependencies for the ROS side (Python 3.10)
+# Note: lerobot itself runs on the host in a 3.12 venv.
+RUN uv pip install --system --no-cache \
     "numpy<2" \
     "mediapipe==0.10.8" \
     opencv-python \

@@ -399,7 +399,13 @@ class MotionBackend:
         # unpredictable motion on real hardware.
         if self._joint_traj_stream_pub is not None:
             traj = JointTrajectory()
-            traj.header.stamp = self.node.get_clock().now().to_msg()
+            # Zero stamp tells the JTC to start this trajectory at the time it is
+            # received, regardless of whether this publisher uses wall clock or sim
+            # time.  A non-zero wall-clock stamp sent to a JTC that runs on sim
+            # time (e.g. Isaac Sim) would be interpreted as a start time billions of
+            # sim-seconds in the future, so the trajectory would never execute.
+            traj.header.stamp.sec = 0
+            traj.header.stamp.nanosec = 0
             traj.joint_names = list(target_joints.keys())
             pt = JointTrajectoryPoint()
             pt.positions = [float(target_joints[name]) for name in traj.joint_names]
@@ -408,6 +414,86 @@ class MotionBackend:
             pt.time_from_start = Duration(sec=0, nanosec=100_000_000)  # 100 ms lookahead
             traj.points = [pt]
             self._joint_traj_stream_pub.publish(traj)
+
+    def publish_action_chunk(
+        self,
+        joint_names: list[str],
+        positions_sequence: list[list[float]],
+        fps: float,
+        start_positions: list[float] | None = None,
+    ) -> None:
+        """Publish a full multi-step action chunk as a single JointTrajectory.
+
+        Isaac Sim's JTC queues individual single-point trajectories instead of
+        replacing them, so streaming one step at a time causes motion to be
+        deferred until the publisher disconnects.  Sending the full chunk as one
+        message with proper time_from_start spacing lets Isaac Sim (and real
+        ros2_control) execute the motion immediately and continuously.
+
+        If start_positions is given it is prepended as a time=0 anchor at the
+        robot's actual current joint positions.  This eliminates the small
+        position-mismatch discontinuity that occurs at chunk boundaries when the
+        robot has drifted slightly from where the previous trajectory ended.
+        """
+        if self._joint_traj_stream_pub is None:
+            return
+        traj = JointTrajectory()
+        traj.header.stamp.sec = 0
+        traj.header.stamp.nanosec = 0
+        traj.joint_names = joint_names
+        step_s = 1.0 / fps
+        step_ns = int(1_000_000_000 / fps)
+
+        # Prepend robot's current position as a time=0 anchor when provided.
+        all_pts: list[list[float]] = (
+            [list(start_positions)] + list(positions_sequence)
+            if start_positions is not None
+            else list(positions_sequence)
+        )
+        has_anchor = start_positions is not None
+        n = len(all_pts)
+        n_joints = len(all_pts[0]) if n > 0 else 0
+
+        for i, positions in enumerate(all_pts):
+            pt = JointTrajectoryPoint()
+            pt.positions = [float(p) for p in positions]
+
+            # With an anchor:
+            #   i=0  anchor (current pos): v=0
+            #   i=1  action[0]:            v=0  ← ease-in: 99 ms ramp from rest
+            #   i=2..n-2 action[1..]:      central-difference velocity
+            #   i=n-1 last action:         v=0
+            # Without anchor, same as before: first and last get v=0.
+            if has_anchor:
+                is_zero_vel = (i <= 1 or i == n - 1)
+            else:
+                is_zero_vel = (i == 0 or i == n - 1)
+
+            if is_zero_vel:
+                pt.velocities = [0.0] * n_joints
+            else:
+                pt.velocities = [
+                    float(all_pts[i + 1][j] - all_pts[i - 1][j]) / (2.0 * step_s)
+                    for j in range(n_joints)
+                ]
+
+            # Timing:
+            #   no anchor: action[k] at (k+1)*step_ns  (original behaviour)
+            #   with anchor:
+            #     anchor     at t=0
+            #     action[0]  at t=3*step_ns  (99 ms gap → smooth ramp from rest)
+            #     action[k]  at t=(k+2)*step_ns  (normal 33 ms spacing after that)
+            if has_anchor:
+                time_ns = 0 if i == 0 else (i + 2) * step_ns
+            else:
+                time_ns = (i + 1) * step_ns
+
+            pt.time_from_start = Duration(
+                sec=time_ns // 1_000_000_000,
+                nanosec=time_ns % 1_000_000_000,
+            )
+            traj.points.append(pt)
+        self._joint_traj_stream_pub.publish(traj)
 
     def _hold_current_arm_position(self):
         hold_joints = {
@@ -622,6 +708,78 @@ class MotionBackend:
                 f"[{self.backend_kind}] MoveGroup joint goal FAILED: error_code={err_val}"
             )
         return success
+
+    def move_to_joint_positions_direct(
+        self,
+        target_joints,
+        duration_sec: float = 8.0,
+        position_tolerance: float = 0.03,
+        timeout_padding_sec: float = 5.0,
+    ) -> bool:
+        self.node.get_logger().info(
+            f"[{self.backend_kind}] move_to_joint_positions_direct: {len(target_joints)} joints, "
+            f"duration={duration_sec:.2f}s"
+        )
+        if self._joint_traj_stream_pub is None:
+            self.node.get_logger().warning(
+                f"[{self.backend_kind}] Direct joint trajectory publisher unavailable, falling back to MoveGroup."
+            )
+            return self.move_to_joint_positions(target_joints, velocity=0.3)
+        if not self._ensure_trajectory_mode():
+            self.node.get_logger().error(
+                f"[{self.backend_kind}] move_to_joint_positions_direct: failed to enter trajectory mode"
+            )
+            return False
+        if not self.state_received.wait(timeout=2.0):
+            self.node.get_logger().error(
+                f"[{self.backend_kind}] move_to_joint_positions_direct: timed out waiting for joint states"
+            )
+            return False
+
+        filtered_targets = {
+            name: float(position)
+            for name, position in target_joints.items()
+            if name.startswith(self.joint_prefixes)
+        }
+        if not filtered_targets:
+            self.node.get_logger().error(
+                f"[{self.backend_kind}] move_to_joint_positions_direct: no matching target joints"
+            )
+            return False
+
+        traj = JointTrajectory()
+        traj.header.stamp.sec = 0
+        traj.header.stamp.nanosec = 0
+        traj.joint_names = list(filtered_targets.keys())
+        pt = JointTrajectoryPoint()
+        pt.positions = [filtered_targets[name] for name in traj.joint_names]
+        pt.velocities = [0.0] * len(traj.joint_names)
+        pt.accelerations = [0.0] * len(traj.joint_names)
+        duration_ns = max(int(duration_sec * 1_000_000_000), 1)
+        pt.time_from_start = Duration(
+            sec=duration_ns // 1_000_000_000,
+            nanosec=duration_ns % 1_000_000_000,
+        )
+        traj.points = [pt]
+        self._joint_traj_stream_pub.publish(traj)
+
+        deadline = time.time() + max(duration_sec, 0.5) + timeout_padding_sec
+        while rclpy.ok() and time.time() < deadline:
+            reached = True
+            for name, target in filtered_targets.items():
+                current = self.current_joint_positions.get(name)
+                if current is None or abs(float(current) - target) > position_tolerance:
+                    reached = False
+                    break
+            if reached:
+                return True
+            time.sleep(0.05)
+
+        self.node.get_logger().error(
+            f"[{self.backend_kind}] move_to_joint_positions_direct timed out after "
+            f"{max(duration_sec, 0.5) + timeout_padding_sec:.1f}s"
+        )
+        return False
 
     def move_to_pose_robust(
         self,

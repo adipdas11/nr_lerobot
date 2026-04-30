@@ -1,0 +1,32 @@
+[project]
+name = "agentic_disassembly"
+version = "0.1.0"
+description = "ROS 2 robotic teleoperation and disassembly with LeRobot"
+readme = "README.md"
+authors = [{ name = "Adip Das", email = "adipdas11@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy<2",
+    "mediapipe==0.10.8",
+    "opencv-python",
+    "pyassimp",
+    "pymodbus",
+    "PyYAML",
+    "scipy",
+    "transforms3d",
+    "xarm-python-sdk",
+    "lerobot",
+    "rosbags",
+    "pandas",
+    "pyarrow",
+]
+
+[tool.uv.sources]
+lerobot = { path = "./lerobot", editable = true }
+
+[tool.uv]
+dev-dependencies = [
+    "black",
+    "pre-commit",
+    "pytest-cov",
+]
