@@ -523,7 +523,9 @@ class ExoticaArmTeleop(Node):
 
     def _command_gripper(self, arm: dict, closed: bool) -> bool:
         target = arm["gripper_closed_position"] if closed else arm["gripper_open_position"]
+        backend = arm["gripper_backend"]
         if arm["robot_name"] == "uf850":
+            return backend.move_gripper(target, velocity=1.0)
         return backend.move_to_joint_positions(
             {arm["gripper_joint_name"]: float(target)},
             velocity=1.0,
