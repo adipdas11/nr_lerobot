@@ -19,6 +19,14 @@ def generate_launch_description():
     joy_dev = LaunchConfiguration("joy_dev")
     linear_speed = LaunchConfiguration("linear_speed_mps")
     yaw_speed = LaunchConfiguration("yaw_speed_rps")
+    xarm5_min_tcp_x = LaunchConfiguration("xarm5_min_tcp_x")
+    xarm5_max_tcp_x = LaunchConfiguration("xarm5_max_tcp_x")
+    xarm5_min_tcp_z = LaunchConfiguration("xarm5_min_tcp_z")
+    xarm5_max_tcp_z = LaunchConfiguration("xarm5_max_tcp_z")
+    uf850_min_tcp_x = LaunchConfiguration("uf850_min_tcp_x")
+    uf850_max_tcp_x = LaunchConfiguration("uf850_max_tcp_x")
+    uf850_min_tcp_z = LaunchConfiguration("uf850_min_tcp_z")
+    uf850_max_tcp_z = LaunchConfiguration("uf850_max_tcp_z")
 
     joy_node = Node(
         package="joy",
@@ -41,6 +49,14 @@ def generate_launch_description():
                 "enable_xarm5": enable_xarm5,
                 "linear_speed_mps": linear_speed,
                 "yaw_speed_rps": yaw_speed,
+                "xarm5.min_tcp_x": xarm5_min_tcp_x,
+                "xarm5.max_tcp_x": xarm5_max_tcp_x,
+                "xarm5.min_tcp_z": xarm5_min_tcp_z,
+                "xarm5.max_tcp_z": xarm5_max_tcp_z,
+                "uf850.min_tcp_x": uf850_min_tcp_x,
+                "uf850.max_tcp_x": uf850_max_tcp_x,
+                "uf850.min_tcp_z": uf850_min_tcp_z,
+                "uf850.max_tcp_z": uf850_max_tcp_z,
             }
         ],
     )
@@ -71,6 +87,22 @@ def generate_launch_description():
                 "yaw_speed_rps", default_value="0.3",
                 description="Yaw rate rad/s per full stick deflection",
             ),
+            DeclareLaunchArgument("xarm5_min_tcp_x", default_value="0.637258",
+                                  description="xArm5 min TCP X (m)"),
+            DeclareLaunchArgument("xarm5_max_tcp_x", default_value="1.16441",
+                                  description="xArm5 max TCP X (m)"),
+            DeclareLaunchArgument("xarm5_min_tcp_z", default_value="0.92706",
+                                  description="xArm5 min TCP Z (m)"),
+            DeclareLaunchArgument("xarm5_max_tcp_z", default_value="1.28452",
+                                  description="xArm5 max TCP Z (m)"),
+            DeclareLaunchArgument("uf850_min_tcp_x", default_value="0.647599",
+                                  description="UF850 min TCP X (m)"),
+            DeclareLaunchArgument("uf850_max_tcp_x", default_value="1.24581",
+                                  description="UF850 max TCP X (m)"),
+            DeclareLaunchArgument("uf850_min_tcp_z", default_value="0.92962",
+                                  description="UF850 min TCP Z (m)"),
+            DeclareLaunchArgument("uf850_max_tcp_z", default_value="1.30",
+                                  description="UF850 max TCP Z (m)"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(str(dual_arm_launch_dir / "exotica.launch.py")),
                 launch_arguments={

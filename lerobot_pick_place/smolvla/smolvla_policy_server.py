@@ -8,6 +8,7 @@ Unix-domain socket with the ROS-side Python 3.10 relay.
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import sys
 from pathlib import Path
@@ -29,6 +30,11 @@ DEFAULT_CHECKPOINT_ROOT = (
 DEFAULT_SOCKET_PATH = "/tmp/smolvla_policy.sock"
 DEFAULT_TASK = "pick up the cube"
 HF_CACHE_ROOT = Path.home() / ".cache" / "huggingface" / "hub"
+LOCAL_VLM_REQUIRED_FILES = (
+    "config.json",
+    "processor_config.json",
+    "tokenizer_config.json",
+)
 
 
 def find_latest_model_dir(checkpoint_root: Path) -> Path:
@@ -79,6 +85,51 @@ def resolve_local_vlm_snapshot(model_id: str) -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
+def is_local_vlm_dir(path: Path) -> bool:
+    return path.is_dir() and all((path / filename).is_file() for filename in LOCAL_VLM_REQUIRED_FILES)
+
+
+def find_bundled_local_vlm_dir(model_dir: Path) -> Path | None:
+    candidates = (
+        model_dir / "vlm_model",
+        model_dir / "base_model",
+        model_dir / "smolvlm",
+        model_dir / "smolvlm_model",
+    )
+    for candidate in candidates:
+        if is_local_vlm_dir(candidate):
+            return candidate
+    return None
+
+
+def resolve_local_vlm_dir(model_dir: Path, explicit_vlm_model_dir: str | None, model_id: str) -> Path | None:
+    if explicit_vlm_model_dir:
+        candidate = Path(explicit_vlm_model_dir).expanduser().resolve()
+        if is_local_vlm_dir(candidate):
+            return candidate
+        missing = [name for name in LOCAL_VLM_REQUIRED_FILES if not (candidate / name).is_file()]
+        raise FileNotFoundError(
+            f"Invalid --vlm-model-dir: {candidate}. Missing required files: {', '.join(missing)}"
+        )
+
+    bundled = find_bundled_local_vlm_dir(model_dir)
+    if bundled is not None:
+        return bundled
+
+    cached = resolve_local_vlm_snapshot(model_id)
+    if cached is not None:
+        return cached
+
+    return None
+
+
+def huggingface_offline_enabled() -> bool:
+    offline_values = ("1", "true", "yes", "on")
+    return os.environ.get("HF_HUB_OFFLINE", "").strip().lower() in offline_values or os.environ.get(
+        "TRANSFORMERS_OFFLINE", ""
+    ).strip().lower() in offline_values
+
+
 class SmolVLAPolicyServer:
     def __init__(self, args: argparse.Namespace) -> None:
         self._socket_path = Path(args.socket_path)
@@ -88,6 +139,7 @@ class SmolVLAPolicyServer:
             if args.model_dir
             else find_latest_model_dir(Path(args.checkpoint_root).expanduser().resolve())
         )
+        self._explicit_vlm_model_dir = args.vlm_model_dir
         self._policy, self._preprocess, self._postprocess, self._cfg = self._load_policy(
             self._model_dir,
             resolve_device(args.device),
@@ -101,15 +153,30 @@ class SmolVLAPolicyServer:
         cfg = PreTrainedConfig.from_pretrained(model_dir)
         cfg.device = device
         if getattr(cfg, "vlm_model_name", None):
-            local_vlm_snapshot = resolve_local_vlm_snapshot(cfg.vlm_model_name)
-            if local_vlm_snapshot is not None:
-                cfg.vlm_model_name = str(local_vlm_snapshot)
+            local_vlm_dir = resolve_local_vlm_dir(
+                model_dir,
+                self._explicit_vlm_model_dir,
+                cfg.vlm_model_name,
+            )
+            if local_vlm_dir is not None:
+                cfg.vlm_model_name = str(local_vlm_dir)
+            elif huggingface_offline_enabled():
+                raise FileNotFoundError(
+                    "Offline SmolVLA inference requires local SmolVLM assets, but none were found. "
+                    f"Missing base model for '{cfg.vlm_model_name}'. "
+                    "Provide `--vlm-model-dir /path/to/SmolVLM2-500M-Video-Instruct`, "
+                    "or bundle the same files into `<checkpoint>/pretrained_model/vlm_model/`. "
+                    f"Required files: {', '.join(LOCAL_VLM_REQUIRED_FILES)}"
+                )
         policy_cls = get_policy_class(cfg.type)
         policy = policy_cls.from_pretrained(model_dir, config=cfg)
         preprocess, postprocess = make_pre_post_processors(
             cfg,
             str(model_dir),
-            preprocessor_overrides={"device_processor": {"device": device}},
+            preprocessor_overrides={
+                "device_processor": {"device": device},
+                "tokenizer_processor": {"tokenizer_name": cfg.vlm_model_name},
+            },
         )
         return policy, preprocess, postprocess, cfg
 
@@ -217,6 +284,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket-path", default=DEFAULT_SOCKET_PATH)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--task", default=DEFAULT_TASK)
+    parser.add_argument("--vlm-model-dir", default=None)
     return parser
 
 

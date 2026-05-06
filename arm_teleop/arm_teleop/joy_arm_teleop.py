@@ -80,8 +80,21 @@ class JoyArmTeleop(Node):
         self.declare_parameter("deadband", 0.05)
         self.declare_parameter("enable_xarm5", False)
         self.declare_parameter("enable_uf850", False)
-        self.declare_parameter("workspace_min", [-0.70, -0.85, 0.00])
-        self.declare_parameter("workspace_max", [1.25, 0.85, 1.30])
+        # Global fallback limits: X (forward/back) and Z (up/down) only.
+        # Y (left/right) is left unclamped — joint limits handle lateral reach.
+        self.declare_parameter("workspace_min_x", -0.70)
+        self.declare_parameter("workspace_max_x", 1.25)
+        self.declare_parameter("workspace_min_z", 0.00)
+        self.declare_parameter("workspace_max_z", 1.30)
+        # Per-arm tighter X and Z limits (same defaults as exotica_arm_teleop).
+        self.declare_parameter("xarm5.min_tcp_x", 0.637258)
+        self.declare_parameter("xarm5.max_tcp_x", 1.16441)
+        self.declare_parameter("xarm5.min_tcp_z", 0.92706)
+        self.declare_parameter("xarm5.max_tcp_z", 1.28452)
+        self.declare_parameter("uf850.min_tcp_x", 0.647599)
+        self.declare_parameter("uf850.max_tcp_x", 1.24581)
+        self.declare_parameter("uf850.min_tcp_z", 0.92962)
+        self.declare_parameter("uf850.max_tcp_z", 1.30)
         self.declare_parameter("planner_init_delay_sec", 8.0)
         self.declare_parameter("planner_retry_sec", 2.0)
         self.declare_parameter("max_joint_step_rad", 0.08)
@@ -94,8 +107,10 @@ class JoyArmTeleop(Node):
         self._linear_speed = float(self.get_parameter("linear_speed_mps").value)
         self._yaw_speed = float(self.get_parameter("yaw_speed_rps").value)
         self._deadband = float(self.get_parameter("deadband").value)
-        self._ws_min = [float(v) for v in self.get_parameter("workspace_min").value]
-        self._ws_max = [float(v) for v in self.get_parameter("workspace_max").value]
+        self._ws_min_x = float(self.get_parameter("workspace_min_x").value)
+        self._ws_max_x = float(self.get_parameter("workspace_max_x").value)
+        self._ws_min_z = float(self.get_parameter("workspace_min_z").value)
+        self._ws_max_z = float(self.get_parameter("workspace_max_z").value)
         self._planner_init_delay = float(self.get_parameter("planner_init_delay_sec").value)
         self._planner_retry_sec = float(self.get_parameter("planner_retry_sec").value)
         self._max_joint_step = float(self.get_parameter("max_joint_step_rad").value)
@@ -127,6 +142,16 @@ class JoyArmTeleop(Node):
                 "last_planner_retry_time": 0.0,
                 "last_planner_error_time": 0.0,
                 "last_cmd_log_time": 0.0,
+                "last_limit_log_time": 0.0,
+                "min_tcp_x": float(self.get_parameter("xarm5.min_tcp_x").value),
+                "max_tcp_x": float(self.get_parameter("xarm5.max_tcp_x").value),
+                "min_tcp_z": float(self.get_parameter("xarm5.min_tcp_z").value),
+                "max_tcp_z": float(self.get_parameter("xarm5.max_tcp_z").value),
+                # xArm5 sits on uf_slide_joint (prismatic). Tracking this lets us
+                # reset the IK target whenever the slide moves so the arm follows
+                # the base instead of fighting it.
+                "slide_joint": "uf_slide_joint",
+                "_last_slide_pos": None,
             },
             "uf850": {
                 "robot_name": "uf850",
@@ -146,6 +171,13 @@ class JoyArmTeleop(Node):
                 "last_planner_retry_time": 0.0,
                 "last_planner_error_time": 0.0,
                 "last_cmd_log_time": 0.0,
+                "last_limit_log_time": 0.0,
+                "min_tcp_x": float(self.get_parameter("uf850.min_tcp_x").value),
+                "max_tcp_x": float(self.get_parameter("uf850.max_tcp_x").value),
+                "min_tcp_z": float(self.get_parameter("uf850.min_tcp_z").value),
+                "max_tcp_z": float(self.get_parameter("uf850.max_tcp_z").value),
+                "slide_joint": None,
+                "_last_slide_pos": None,
             },
         }
 
@@ -414,6 +446,38 @@ class JoyArmTeleop(Node):
         )
         return True
 
+    # ── Workspace clamping ─────────────────────────────────────────────────────
+
+    def _clamp_position(self, arm: dict, position: list) -> list:
+        """Clamp X and Z to per-arm limits; Y is unclamped (joint limits handle lateral reach)."""
+        min_x = max(self._ws_min_x, float(arm["min_tcp_x"]))
+        max_x = min(self._ws_max_x, float(arm["max_tcp_x"]))
+        min_z = max(self._ws_min_z, float(arm["min_tcp_z"]))
+        max_z = min(self._ws_max_z, float(arm["max_tcp_z"]))
+
+        cx = clamp(position[0], min_x, max_x)
+        cy = position[1]   # Y (left/right) unrestricted — let IK/joint limits handle it
+        cz = clamp(position[2], min_z, max_z)
+
+        now = time.monotonic()
+        if now - arm["last_limit_log_time"] > 1.0:
+            if cx != position[0]:
+                direction = "backward" if position[0] < min_x else "forward"
+                self.get_logger().warning(
+                    f"[{arm['robot_name']}] TCP {direction} X limit: "
+                    f"requested x={position[0]:.3f}, clamped to x={cx:.3f}"
+                )
+                arm["last_limit_log_time"] = now
+            elif cz != position[2]:
+                direction = "lower" if position[2] < min_z else "upper"
+                self.get_logger().warning(
+                    f"[{arm['robot_name']}] TCP {direction} Z limit: "
+                    f"requested z={position[2]:.3f}, clamped to z={cz:.3f}"
+                )
+                arm["last_limit_log_time"] = now
+
+        return [cx, cy, cz]
+
     # ── IK solve and joint publish ─────────────────────────────────────────────
 
     def _solve_and_publish(self, arm: dict):
@@ -498,6 +562,7 @@ class JoyArmTeleop(Node):
         arm["target_rpy"] = None
         arm["seed_joints"] = None
         arm["_last_filtered_joints"] = None
+        arm["_last_slide_pos"] = None  # clear so slide tracking starts fresh
         self.get_logger().info(f"Active arm → {self._active_arm_name}")
 
     def _switch_arm(self):
@@ -560,7 +625,24 @@ class JoyArmTeleop(Node):
         if not arm["enabled"]:
             return
 
-        # Initialise target pose from TF on first tick for this arm
+        # When uf_slide_joint moves, xarm5_base_link shifts in base_link frame,
+        # which invalidates the cached target_pos.  Reset it so TF re-initialises
+        # the target at the arm's new world position — arm follows the slide instead
+        # of fighting it.
+        slide_jname = arm.get("slide_joint")
+        if slide_jname and arm["target_pos"] is not None:
+            cur_slide = float(
+                arm["backend"].current_joint_positions.get(slide_jname, 0.0)
+            )
+            last_slide = arm["_last_slide_pos"]
+            if last_slide is not None and abs(cur_slide - last_slide) > 5e-4:
+                arm["target_pos"] = None
+                arm["target_rpy"] = None
+                arm["seed_joints"] = None
+                arm["_last_filtered_joints"] = None
+            arm["_last_slide_pos"] = cur_slide
+
+        # Initialise target pose from TF on first tick for this arm (or after slide reset)
         if arm["target_pos"] is None:
             if not self._init_target_from_tf(arm):
                 return
@@ -579,11 +661,11 @@ class JoyArmTeleop(Node):
             dyaw = ax_rs_x * self._yaw_speed * self._dt
 
             pos = arm["target_pos"]
-            arm["target_pos"] = [
-                clamp(pos[0] + dx, self._ws_min[0], self._ws_max[0]),
-                clamp(pos[1] + dy, self._ws_min[1], self._ws_max[1]),
-                clamp(pos[2] + dz, self._ws_min[2], self._ws_max[2]),
-            ]
+            arm["target_pos"] = self._clamp_position(arm, [
+                pos[0] + dx,
+                pos[1] + dy,
+                pos[2] + dz,
+            ])
             arm["target_rpy"][2] += dyaw
 
         self._solve_and_publish(arm)

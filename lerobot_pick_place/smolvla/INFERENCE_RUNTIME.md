@@ -743,7 +743,8 @@ ros2 topic echo /filtered_joint_states
 
 - The LeRobot metadata still uses generic feature names `joint1..joint5, gripper`.
   The runtime maps those six dimensions to xarm joints explicitly.
-- The wrapper forces offline Hugging Face mode because the SmolVLM base assets are cached locally.
+- If local SmolVLM assets are bundled or cached, the runtime uses them automatically.
+- If they are not present and offline mode is not explicitly enabled, Transformers can resolve the base model normally.
 - Empty bag folders are skipped during conversion.
 
 ## Troubleshooting

@@ -20,12 +20,13 @@ fi
 SOCKET_PATH="${SOCKET_PATH:-/tmp/smolvla_policy.sock}"
 CHECKPOINT_STEP=""   # specific step number, e.g. 010000
 MODEL_DIR=""         # or a fully-qualified path to a pretrained_model dir
+VLM_MODEL_DIR="${VLM_MODEL_DIR:-}"
 FORWARD_ARGS=()
 
 usage() {
   cat <<EOF
 Usage:
-  ./run_smolvla_policy.sh [--isaac | --real | --hardware-type <mode>] [--checkpoint STEP|PATH] [smolvla args...]
+  ./run_smolvla_policy.sh [--isaac | --real | --hardware-type <mode>] [--checkpoint STEP|PATH] [--vlm-model-dir PATH] [smolvla args...]
 
 Hardware selection:
   --isaac              Run against Isaac Sim topics and controllers
@@ -38,10 +39,16 @@ Checkpoint selection (default: latest checkpoint under CHECKPOINT_ROOT):
                        and CHECKPOINT_ROOT/STEP/pretrained_model
   --checkpoint PATH    Run a specific pretrained_model directory by full path
 
+Base VLM assets for offline inference:
+  --vlm-model-dir PATH Local directory containing SmolVLM processor/tokenizer/config files.
+                       Required for offline inference if the Hugging Face cache is empty and the
+                       checkpoint does not already bundle these assets.
+
 Examples:
   ./run_smolvla_policy.sh --real
   ./run_smolvla_policy.sh --real --checkpoint 010000
   ./run_smolvla_policy.sh --real --checkpoint /abs/path/to/pretrained_model
+  ./run_smolvla_policy.sh --real --checkpoint 050000 --vlm-model-dir /abs/path/to/SmolVLM2-500M-Video-Instruct
 EOF
 }
 
@@ -71,6 +78,15 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       CHECKPOINT_STEP="$2"
+      shift 2
+      ;;
+    --vlm-model-dir)
+      if [[ $# -lt 2 ]]; then
+        echo "--vlm-model-dir requires a path" >&2
+        usage >&2
+        exit 1
+      fi
+      VLM_MODEL_DIR="$2"
       shift 2
       ;;
     --help|-h)
@@ -105,9 +121,6 @@ elif [[ -f "$WORKSPACE_ROOT/../../install/setup.bash" ]]; then
 fi
 set -u
 
-# SmolVLA base processor/config cached locally — force offline mode.
-export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
-export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 # SCRIPT_DIR added so smolvla_ipc.py is importable by both server and client
 export PYTHONPATH="$SCRIPT_DIR:$WORKSPACE_ROOT/lerobot/src:$WORKSPACE_ROOT/nr_dual_arm_moveit_config:$WORKSPACE_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
@@ -150,6 +163,9 @@ fi
 SERVER_EXTRA_ARGS=()
 if [[ -n "$MODEL_DIR" ]]; then
   SERVER_EXTRA_ARGS+=(--model-dir "$MODEL_DIR")
+fi
+if [[ -n "$VLM_MODEL_DIR" ]]; then
+  SERVER_EXTRA_ARGS+=(--vlm-model-dir "$VLM_MODEL_DIR")
 fi
 
 "$MODEL_PYTHON_BIN" "$SCRIPT_DIR/smolvla_policy_server.py" \
