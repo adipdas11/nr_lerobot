@@ -18,7 +18,7 @@ def _camera_node(enable_arg: str, name_arg: str, serial_arg: str):
             {
                 "serial_no": LaunchConfiguration(serial_arg),
                 "enable_color": True,
-                "enable_depth": True,
+                "enable_depth": LaunchConfiguration("enable_depth"),
                 "pointcloud.enable": LaunchConfiguration("pointcloud_enable"),
                 "align_depth.enable": LaunchConfiguration("align_depth"),
                 "rgb_camera.color_profile": "640x480x30",
@@ -88,6 +88,11 @@ def generate_launch_description():
                 "camera2_name",
                 default_value="camera2",
                 description="Namespace for camera 2",
+            ),
+            DeclareLaunchArgument(
+                "enable_depth",
+                default_value="true",
+                description="Enable depth streams.",
             ),
             DeclareLaunchArgument(
                 "pointcloud_enable",

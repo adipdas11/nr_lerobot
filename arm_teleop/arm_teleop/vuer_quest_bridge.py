@@ -40,12 +40,15 @@ class VuerQuestBridge(Node):
         self.declare_parameter("key_file", "")
         self.declare_parameter("frame_id", "vuer_world")
         self.declare_parameter("hand_fps", 30)
+        self.declare_parameter("enable_hand_tracking", True)
         self.declare_parameter("hide_hand_meshes", False)
         self.declare_parameter("pinky_pinch_on_threshold_m", 0.025)
         self.declare_parameter("pinky_pinch_off_threshold_m", 0.035)
         self.declare_parameter("gripper_aperture_min_ratio", 0.15)
         self.declare_parameter("gripper_aperture_max_ratio", 1.80)
         self.declare_parameter("enable_camera_streams", True)
+        self.declare_parameter("enable_camera1_stream", True)
+        self.declare_parameter("enable_camera2_stream", True)
         self.declare_parameter("camera1_topic", "/camera1/realsense_camera/color/image_raw/compressed")
         self.declare_parameter("camera2_topic", "/camera2/realsense_camera/color/image_raw/compressed")
         self.declare_parameter("camera_fps", 30.0)
@@ -60,6 +63,7 @@ class VuerQuestBridge(Node):
 
         self._frame_id = str(self.get_parameter("frame_id").value)
         self._hand_fps = max(1, int(self.get_parameter("hand_fps").value))
+        self._enable_hand_tracking = bool(self.get_parameter("enable_hand_tracking").value)
         self._hide_hands = bool(self.get_parameter("hide_hand_meshes").value)
         self._pinky_on = float(self.get_parameter("pinky_pinch_on_threshold_m").value)
         self._pinky_off = float(self.get_parameter("pinky_pinch_off_threshold_m").value)
@@ -102,7 +106,8 @@ class VuerQuestBridge(Node):
             free_port=False,
             queries={"grid": False, "collapseMenu": True},
         )
-        self._app.add_handler("HAND_MOVE")(self._on_hand_move)
+        if self._enable_hand_tracking:
+            self._app.add_handler("HAND_MOVE")(self._on_hand_move)
 
         self._camera_streams = {}
         self._camera_last_push = {"camera1": 0.0, "camera2": 0.0}
@@ -113,6 +118,10 @@ class VuerQuestBridge(Node):
         )
         if bool(self.get_parameter("enable_camera_streams").value):
             self._configure_camera_streams()
+
+        self._last_camera_peer_counts = None
+        if self._camera_streams:
+            self.create_timer(2.0, self._report_camera_peers)
 
         self._app.spawn(self._serve_session)
         self._server_thread = threading.Thread(target=self._run_vuer, name="vuer-server", daemon=True)
@@ -152,6 +161,8 @@ class VuerQuestBridge(Node):
         bitrate = max(100_000, int(self.get_parameter("camera_bitrate_bps").value))
         camera_fps = max(1, int(round(float(self.get_parameter("camera_fps").value))))
         for camera in ("camera1", "camera2"):
+            if not bool(self.get_parameter(f"enable_{camera}_stream").value):
+                continue
             self._camera_streams[camera] = self._app.create_webrtc_stream(
                 camera,
                 codec=codec,
@@ -176,13 +187,14 @@ class VuerQuestBridge(Node):
 
     async def _serve_session(self, session):
         session.set @ self._DefaultScene(frameloop="always")
-        session.upsert @ self._Hands(
-            fps=self._hand_fps,
-            stream=True,
-            key="quest-hands",
-            hideLeft=self._hide_hands,
-            hideRight=self._hide_hands,
-        )
+        if self._enable_hand_tracking:
+            session.upsert @ self._Hands(
+                fps=self._hand_fps,
+                stream=True,
+                key="quest-hands",
+                hideLeft=self._hide_hands,
+                hideRight=self._hide_hands,
+            )
 
         if self._camera_streams:
             distance = float(self.get_parameter("panel_distance_m").value)
@@ -190,27 +202,37 @@ class VuerQuestBridge(Node):
             horizontal = float(self.get_parameter("panel_horizontal_offset_m").value)
             vertical = float(self.get_parameter("panel_vertical_offset_m").value)
             aspect = self._camera_size[0] / self._camera_size[1]
+            if len(self._camera_streams) == 1:
+                panel_x = {next(iter(self._camera_streams)): 0.0}
+            else:
+                panel_x = {"camera1": -horizontal, "camera2": horizontal}
             session.upsert(
                 [
                     self._WebRTCVideoPlane(
-                        src=self._camera_streams["camera1"].url,
-                        key="camera1-panel",
+                        src=stream.url,
+                        key=f"{camera}-panel",
+                        # Quest and Ubuntu are on the same LAN. Avoid waiting on
+                        # an external STUN server before trying host candidates.
+                        iceServer=None,
                         distanceToCamera=distance,
                         height=height,
                         aspect=aspect,
-                        position=[-horizontal, vertical, 0.0],
-                    ),
-                    self._WebRTCVideoPlane(
-                        src=self._camera_streams["camera2"].url,
-                        key="camera2-panel",
-                        distanceToCamera=distance,
-                        height=height,
-                        aspect=aspect,
-                        position=[horizontal, vertical, 0.0],
-                    ),
+                        position=[panel_x[camera], vertical, 0.0],
+                    )
+                    for camera, stream in self._camera_streams.items()
                 ]
             )
         await session.forever()
+
+    def _report_camera_peers(self):
+        counts = {
+            camera: len(getattr(stream, "_pcs", ()))
+            for camera, stream in self._camera_streams.items()
+        }
+        if counts != self._last_camera_peer_counts:
+            summary = ", ".join(f"{camera}={count}" for camera, count in counts.items())
+            self.get_logger().info(f"Vuer WebRTC peer connections: {summary}")
+            self._last_camera_peer_counts = counts
 
     async def _on_hand_move(self, event, _session):
         value = event.value if isinstance(event.value, dict) else {}

@@ -4,6 +4,7 @@ vuer_quest_bridge:
     port: 8012
     frame_id: vuer_world
     hand_fps: 30
+    enable_hand_tracking: true
     # Show Vuer's native tracked hand meshes while streaming all 25 joints to ROS.
     hide_hand_meshes: false
 
@@ -16,6 +17,8 @@ vuer_quest_bridge:
     gripper_aperture_max_ratio: 1.80
 
     enable_camera_streams: true
+    enable_camera1_stream: true
+    enable_camera2_stream: true
     camera1_topic: /camera1/realsense_camera/color/image_raw/compressed
     camera2_topic: /camera2/realsense_camera/color/image_raw/compressed
     camera_fps: 30.0

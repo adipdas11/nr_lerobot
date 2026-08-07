@@ -128,6 +128,22 @@ For a terminal-by-terminal operational checklist, use
 For the left/right landmark topic names and message format, use
 [VUER_HAND_TOPICS.md](VUER_HAND_TOPICS.md).
 
+To display only the configured D435i RGB image in Vuer, with no robot, depth,
+second camera, or hand tracking:
+
+```bash
+ros2 launch arm_teleop vuer_color_viewer.launch.py
+```
+
+To display both configured RealSense RGB streams as side-by-side panels:
+
+```bash
+ros2 launch arm_teleop vuer_color_viewer.launch.py enable_camera2:=true
+```
+
+For a reusable implementation guide and the ABB YuMi porting boundary, use
+[VUER_QUEST_YUMI_PORTING.md](VUER_QUEST_YUMI_PORTING.md).
+
 ### `nr_dual_arm_moveit_config demo.launch.py`
 
 Full dual-arm bringup with `ros2_control`, MoveIt, optional RViz, optional Servo, and hardware-mode-specific helpers.

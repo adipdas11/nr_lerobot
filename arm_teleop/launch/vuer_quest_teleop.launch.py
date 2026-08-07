@@ -28,6 +28,9 @@ def generate_launch_description():
     camera1_serial = LaunchConfiguration("camera1_serial")
     camera2_serial = LaunchConfiguration("camera2_serial")
     enable_camera_streams = LaunchConfiguration("enable_camera_streams")
+    enable_camera1_stream = LaunchConfiguration("enable_camera1_stream")
+    enable_camera2_stream = LaunchConfiguration("enable_camera2_stream")
+    enable_hand_tracking = LaunchConfiguration("enable_hand_tracking")
     teleop_config_file = LaunchConfiguration("teleop_config_file")
     vuer_config_file = LaunchConfiguration("vuer_config_file")
     vuer_host = LaunchConfiguration("vuer_host")
@@ -69,6 +72,9 @@ def generate_launch_description():
                 "cert_file": vuer_cert_file,
                 "key_file": vuer_key_file,
                 "enable_camera_streams": ParameterValue(enable_camera_streams, value_type=bool),
+                "enable_camera1_stream": ParameterValue(enable_camera1_stream, value_type=bool),
+                "enable_camera2_stream": ParameterValue(enable_camera2_stream, value_type=bool),
+                "enable_hand_tracking": ParameterValue(enable_hand_tracking, value_type=bool),
                 "hide_hand_meshes": ParameterValue(hide_hand_meshes, value_type=bool),
             },
         ],
@@ -98,6 +104,9 @@ def generate_launch_description():
                 default_value="true",
                 description="Show the two configured compressed-image topics in Quest.",
             ),
+            DeclareLaunchArgument("enable_camera1_stream", default_value="true"),
+            DeclareLaunchArgument("enable_camera2_stream", default_value="true"),
+            DeclareLaunchArgument("enable_hand_tracking", default_value="true"),
             DeclareLaunchArgument(
                 "teleop_config_file",
                 default_value=str(package_share / "config" / "quest_exotica_teleop.yaml"),
