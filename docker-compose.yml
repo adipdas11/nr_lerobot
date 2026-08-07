@@ -21,6 +21,8 @@ services:
       # /home/adip doesn't exist inside the container — redirect HOME so ROS
       # log dirs (~/.ros/log) and other tools have a writable location.
       HOME: /ws
+      VUER_CERT_FILE: ${VUER_CERT_FILE:-/ws/.vuer/tls/cert.pem}
+      VUER_KEY_FILE: ${VUER_KEY_FILE:-/ws/.vuer/tls/key.pem}
     volumes:
       # X11 socket for GUI
       - /tmp/.X11-unix:/tmp/.X11-unix:rw

@@ -1,0 +1,31 @@
+vuer_quest_bridge:
+  ros__parameters:
+    host: 0.0.0.0
+    port: 8012
+    frame_id: vuer_world
+    hand_fps: 30
+    # Show Vuer's native tracked hand meshes while streaming all 25 joints to ROS.
+    hide_hand_meshes: false
+
+    # Metric thumb-to-pinky thresholds with hysteresis.
+    pinky_pinch_on_threshold_m: 0.025
+    pinky_pinch_off_threshold_m: 0.035
+
+    # Thumb-index distance divided by index-to-pinky palm width.
+    gripper_aperture_min_ratio: 0.15
+    gripper_aperture_max_ratio: 1.80
+
+    enable_camera_streams: true
+    camera1_topic: /camera1/realsense_camera/color/image_raw/compressed
+    camera2_topic: /camera2/realsense_camera/color/image_raw/compressed
+    camera_fps: 30.0
+    camera_width: 640
+    camera_height: 480
+    camera_codec: H264
+    camera_bitrate_bps: 4000000
+
+    # Two independent workcell views, head-locked side by side.
+    panel_distance_m: 2.2
+    panel_height_m: 0.72
+    panel_horizontal_offset_m: 0.55
+    panel_vertical_offset_m: 0.05

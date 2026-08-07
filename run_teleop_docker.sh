@@ -47,12 +47,18 @@ exec "${DOCKER_COMPOSE_ENV[@]}" "${DOCKER_COMPOSE_CMD[@]}" run --rm teleop bash 
     rm -rf /ws/build /ws/install /ws/log
   fi
 
-  # Sentinel: arm_teleop is the last package built — if its install marker exists,
-  # the workspace is already built and we can skip straight to sourcing.
+  # Sentinels: older host installs may contain arm_teleop but predate the Vuer
+  # bridge. The host install is mounted over the copy baked into the image.
   BUILT_MARKER=/ws/install/arm_teleop/share/arm_teleop/package.sh
+  VUER_BRIDGE_MARKER=/ws/install/arm_teleop/lib/arm_teleop/vuer_quest_bridge
 
-  if [ -f \"\${BUILT_MARKER}\" ]; then
+  if [ -f \"\${BUILT_MARKER}\" ] && [ -x \"\${VUER_BRIDGE_MARKER}\" ]; then
     echo '[run_teleop] Workspace already built — skipping colcon build.'
+    source /ws/install/setup.bash
+  elif [ -f \"\${BUILT_MARKER}\" ]; then
+    echo '[run_teleop] Existing workspace predates the Vuer bridge — rebuilding arm_teleop.'
+    source /ws/install/setup.bash
+    colcon build --packages-select arm_teleop --executor sequential
     source /ws/install/setup.bash
   else
     echo '[run_teleop] Building workspace...'

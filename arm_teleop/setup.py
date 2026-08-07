@@ -59,6 +59,7 @@ setup(
             "joy_teleop_control_panel = arm_teleop.joy_teleop_control_panel:main",
             "wait_for_exotica_ready = arm_teleop.wait_for_exotica_ready:main",
             "teleop_control_panel = arm_teleop.teleop_control_panel:main",
+            "vuer_quest_bridge = arm_teleop.vuer_quest_bridge:main",
         ],
     },
     cmdclass={"develop": DevelopCommand},

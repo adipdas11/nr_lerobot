@@ -17,6 +17,7 @@
   <depend>opencv-python</depend>
   <exec_depend>image_transport</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
+  <!-- vuer[webrtc] is installed by the teleop Docker image (not a rosdep package). -->
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

@@ -3,9 +3,16 @@ install/
 log/
 .git/
 .code-review-graph/
+.venv/
+graphify-out/
+**/training_output/
+**/rosbags/
+**/lerobot_converted_dataset/
+vision_training/realsense_data/
+vision_training/record_data/
+vision_training/train_vision_model/
 __pycache__/
 *.pyc
 *.pyo
 *.swp
 .DS_Store
-

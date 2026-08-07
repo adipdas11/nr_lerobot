@@ -98,6 +98,36 @@ source install/setup.bash
 
 ## Launch Reference
 
+### Meta Quest directly from Ubuntu with Vuer
+
+The recommended Quest path now runs WebXR hand tracking and two RealSense
+camera panels directly from the Ubuntu teleop container; it does not require
+Windows, Unity, or ROS-TCP-Endpoint.
+
+```bash
+./setup_vuer_tls.sh <ubuntu-lan-ip>
+./setup_teleop_docker.sh
+./run_teleop_docker.sh
+```
+
+Then, inside the container:
+
+```bash
+ros2 launch arm_teleop vuer_quest_teleop.launch.py \
+  hardware_type:=fake \
+  enable_cameras:=true
+```
+
+See [VUER_QUEST_TELEOP.md](VUER_QUEST_TELEOP.md) for the Quest URL, real-hardware
+safety sequence, camera serial overrides, native-venv alternative, ROS topics,
+and troubleshooting.
+
+For a terminal-by-terminal operational checklist, use
+[VUER_QUEST_COMMANDS.md](VUER_QUEST_COMMANDS.md).
+
+For the left/right landmark topic names and message format, use
+[VUER_HAND_TOPICS.md](VUER_HAND_TOPICS.md).
+
 ### `nr_dual_arm_moveit_config demo.launch.py`
 
 Full dual-arm bringup with `ros2_control`, MoveIt, optional RViz, optional Servo, and hardware-mode-specific helpers.

@@ -58,7 +58,8 @@ RUN uv pip install --system --no-cache \
     PyYAML \
     scipy \
     transforms3d \
-    xarm-python-sdk
+    xarm-python-sdk \
+    "vuer[webrtc]==0.1.6"
 
 RUN if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then rosdep init; fi \
  && rosdep update

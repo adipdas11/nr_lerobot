@@ -38,9 +38,19 @@ def generate_launch_description():
     uf850_hand = LaunchConfiguration("uf850_hand")
     xarm5_hand = LaunchConfiguration("xarm5_hand")
     enable_cameras = LaunchConfiguration("enable_cameras")
+    enable_camera1 = LaunchConfiguration("enable_camera1")
+    enable_camera2 = LaunchConfiguration("enable_camera2")
+    camera1_serial = LaunchConfiguration("camera1_serial")
+    camera2_serial = LaunchConfiguration("camera2_serial")
 
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(package_share / "launch" / "realsense.launch.py")),
+        launch_arguments={
+            "enable_camera1": enable_camera1,
+            "enable_camera2": enable_camera2,
+            "camera1_serial": camera1_serial,
+            "camera2_serial": camera2_serial,
+        }.items(),
         condition=IfCondition(enable_cameras),
     )
 
@@ -88,6 +98,10 @@ def generate_launch_description():
             DeclareLaunchArgument("uf850_hand", default_value="right"),
             DeclareLaunchArgument("xarm5_hand", default_value="left"),
             DeclareLaunchArgument("enable_cameras", default_value="false"),
+            DeclareLaunchArgument("enable_camera1", default_value="true"),
+            DeclareLaunchArgument("enable_camera2", default_value="true"),
+            DeclareLaunchArgument("camera1_serial", default_value="_233722072289"),
+            DeclareLaunchArgument("camera2_serial", default_value="_231522072957"),
             DeclareLaunchArgument(
                 "config_file",
                 default_value=str(package_share / "config" / "quest_exotica_teleop.yaml"),
