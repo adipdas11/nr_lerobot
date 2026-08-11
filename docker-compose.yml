@@ -21,6 +21,15 @@ services:
       # /home/adip doesn't exist inside the container — redirect HOME so ROS
       # log dirs (~/.ros/log) and other tools have a writable location.
       HOME: /ws
+      # Keep the Vuer, hand-filter, robot and micro-ROS Agent nodes in the same
+      # DDS domain. ROS_LOCALHOST_ONLY=0 allows discovery over the Wi-Fi/LAN
+      # interfaces when another ROS machine needs to participate.
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+      ROS_LOCALHOST_ONLY: "${ROS_LOCALHOST_ONLY:-0}"
+      # Keep the Humble container on the middleware installed in this image.
+      # Do not inherit a Jazzy host's RMW_IMPLEMENTATION (for example CycloneDDS).
+      RMW_IMPLEMENTATION: "rmw_fastrtps_cpp"
+      MICRO_ROS_AGENT_PORT: "${MICRO_ROS_AGENT_PORT:-8888}"
       VUER_CERT_FILE: ${VUER_CERT_FILE:-/ws/.vuer/tls/cert.pem}
       VUER_KEY_FILE: ${VUER_KEY_FILE:-/ws/.vuer/tls/key.pem}
     volumes:

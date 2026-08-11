@@ -1,0 +1,6 @@
+---- MICROROS DELAY CALCULATIONS ----
+Average delay using microros 239.88527131782945 ms
+Median delay using microros 182.0 ms
+Minimum delay using microros 41 ms
+Maximun delay using microros 1121 ms
+Standard deviation delay using microros 179.8235138508329 ms
