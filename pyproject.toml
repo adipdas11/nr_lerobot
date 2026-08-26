@@ -1,32 +1,28 @@
 [project]
-name = "agentic_disassembly"
+name = "nr-lerobot"
 version = "0.1.0"
-description = "ROS 2 robotic teleoperation and disassembly with LeRobot"
+description = "Host-side LeRobot ACT training and dataset tools for the NR dual-arm workspace"
 readme = "README.md"
 authors = [{ name = "Adip Das", email = "adipdas11@gmail.com" }]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
-    "numpy<2",
-    "mediapipe==0.10.8",
-    "opencv-python",
-    "pyassimp",
-    "pymodbus",
-    "PyYAML",
-    "scipy",
-    "transforms3d",
-    "xarm-python-sdk",
     "lerobot",
-    "rosbags",
     "pandas",
     "pyarrow",
+    "rosbags",
+    "safetensors",
 ]
 
 [tool.uv.sources]
 lerobot = { path = "./lerobot", editable = true }
 
 [tool.uv]
-dev-dependencies = [
+package = false
+
+[dependency-groups]
+dev = [
     "black",
     "pre-commit",
+    "pytest",
     "pytest-cov",
 ]

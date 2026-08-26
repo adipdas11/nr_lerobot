@@ -57,7 +57,12 @@ __pycache__/
 env/
 venv/
 .env
-.venv
+# Generated locally by `uv sync`; reproduce it from pyproject.toml + uv.lock.
+.venv/
+# Reproducible environment metadata must remain committed.
+!pyproject.toml
+!uv.lock
+!.python-version
 .claude/
 .claude-flow/
 .swarm/
