@@ -9,4 +9,7 @@ if [[ -z "${CONTAINER_ID}" ]]; then
 fi
 
 echo "Attaching to container ${CONTAINER_ID}..."
-exec docker exec -it "${CONTAINER_ID}" bash -lc 'source /ws/install/setup.bash 2>/dev/null && exec bash'
+exec docker exec -it \
+  --user "$(id -u):$(id -g)" \
+  "${CONTAINER_ID}" \
+  bash -lc 'source /ws/install/setup.bash 2>/dev/null && exec bash'

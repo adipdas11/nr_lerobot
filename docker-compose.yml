@@ -9,11 +9,15 @@ services:
     stdin_open: true
     tty: true
     working_dir: /ws
-    user: "${HOST_UID:-0}:${HOST_GID:-0}"
+    # Start the entrypoint as root so it can read a sudo-created 0600 Vuer
+    # key. The entrypoint immediately drops to HOST_UID:HOST_GID before ROS.
+    user: "0:0"
     group_add:
       - "44" # video group
       - "46" # plugdev group — required for RealSense and USB devices
     environment:
+      HOST_UID: ${HOST_UID:-0}
+      HOST_GID: ${HOST_GID:-0}
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: "1"
       XAUTHORITY: ${XAUTHORITY:-}
@@ -21,8 +25,10 @@ services:
       # /home/adip doesn't exist inside the container — redirect HOME so ROS
       # log dirs (~/.ros/log) and other tools have a writable location.
       HOME: /ws
-      VUER_CERT_FILE: ${VUER_CERT_FILE:-/ws/.vuer/tls/cert.pem}
-      VUER_KEY_FILE: ${VUER_KEY_FILE:-/ws/.vuer/tls/key.pem}
+      VUER_TLS_CERT_SOURCE: ${VUER_CERT_FILE:-/ws/.vuer/tls/cert.pem}
+      VUER_TLS_KEY_SOURCE: ${VUER_KEY_FILE:-/ws/.vuer/tls/key.pem}
+      VUER_CERT_FILE: /run/vuer-tls/cert.pem
+      VUER_KEY_FILE: /run/vuer-tls/key.pem
     volumes:
       # X11 socket for GUI
       - /tmp/.X11-unix:/tmp/.X11-unix:rw

@@ -416,6 +416,14 @@ These files are mounted into Docker automatically. The key stays on Ubuntu;
 there is no certificate file to copy to Quest. Installation on Quest consists
 of accepting the local certificate warning in Quest Browser.
 
+The setup script normally does not require `sudo`. If the files were created
+with `sudo`, the Docker entrypoint can still read the root-owned private key:
+it copies the TLS pair into a private, container-only runtime directory and
+then switches back to the host user before starting ROS. Do not make
+`key.pem` world-readable. After first pulling this entrypoint change, rebuild
+the image once with `./setup_teleop_docker.sh`; later certificate or IP changes
+do not require another image rebuild.
+
 If the Ubuntu LAN address changes, preserve the old certificate and generate a
 new one:
 

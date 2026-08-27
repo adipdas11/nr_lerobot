@@ -31,8 +31,8 @@ fi
 
 xhost +local:root >/dev/null
 
-# Pass host UID/GID into compose so files created in the container are owned
-# by the current user rather than root.
+# The entrypoint uses root only to stage Vuer TLS files, then switches to this
+# UID/GID so ROS and build artifacts remain owned by the current host user.
 export HOST_UID=$(id -u)
 export HOST_GID=$(id -g)
 
